@@ -1,12 +1,18 @@
+#![allow(unsafe_code)]
+
 use std::io;
 use std::mem;
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use libc;
 
-use super::{ifreq, ifreq_for};
-use crate::phy::Medium;
-use crate::wire::ETHERNET_HEADER_LEN;
+use crate::{
+    phy::{
+        sys::{ifreq, ifreq_for},
+        Medium,
+    },
+    wire::ETHERNET_HEADER_LEN,
+};
 
 /// set interface
 #[cfg(any(

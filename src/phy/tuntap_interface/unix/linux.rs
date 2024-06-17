@@ -1,7 +1,12 @@
-use super::*;
-use crate::{phy::Medium, wire::EthernetFrame};
+#![allow(unsafe_code)]
+
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
+
+use crate::{
+    phy::{sys::*, Medium},
+    wire::EthernetFrame,
+};
 
 #[derive(Debug)]
 pub struct TunTapInterfaceDesc {
@@ -46,14 +51,14 @@ impl TunTapInterfaceDesc {
     ) -> io::Result<()> {
         let mode = match medium {
             #[cfg(feature = "medium-ip")]
-            Medium::Ip => imp::IFF_TUN,
+            Medium::Ip => IFF_TUN,
             #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => imp::IFF_TAP,
+            Medium::Ethernet => IFF_TAP,
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => todo!(),
         };
-        ifr.ifr_data = mode | imp::IFF_NO_PI;
-        ifreq_ioctl(lower, ifr, imp::TUNSETIFF).map(|_| ())
+        ifr.ifr_data = mode | IFF_NO_PI;
+        ifreq_ioctl(lower, ifr, TUNSETIFF).map(|_| ())
     }
 
     fn mtu_ifreq(medium: Medium, ifr: &mut ifreq) -> io::Result<usize> {
@@ -65,7 +70,7 @@ impl TunTapInterfaceDesc {
             lower
         };
 
-        let ip_mtu = ifreq_ioctl(lower, ifr, imp::SIOCGIFMTU).map(|mtu| mtu as usize);
+        let ip_mtu = ifreq_ioctl(lower, ifr, SIOCGIFMTU).map(|mtu| mtu as usize);
 
         unsafe {
             libc::close(lower);

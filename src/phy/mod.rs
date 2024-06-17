@@ -104,10 +104,7 @@ mod pcap_writer;
 #[cfg(all(feature = "phy-raw_socket", unix))]
 mod raw_socket;
 mod tracer;
-#[cfg(all(
-    feature = "phy-tuntap_interface",
-    any(target_os = "linux", target_os = "android")
-))]
+#[cfg(feature = "phy-tuntap_interface")]
 mod tuntap_interface;
 
 #[cfg(all(
@@ -124,10 +121,7 @@ pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 #[cfg(all(feature = "phy-raw_socket", unix))]
 pub use self::raw_socket::RawSocket;
 pub use self::tracer::Tracer;
-#[cfg(all(
-    feature = "phy-tuntap_interface",
-    any(target_os = "linux", target_os = "android")
-))]
+#[cfg(feature = "phy-tuntap_interface")]
 pub use self::tuntap_interface::TunTapInterface;
 
 /// Metadata associated to a packet.

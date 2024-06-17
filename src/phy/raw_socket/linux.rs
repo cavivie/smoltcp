@@ -1,7 +1,9 @@
-use super::*;
-use crate::phy::Medium;
+#![allow(unsafe_code)]
+
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::{io, mem};
+
+use crate::phy::{sys::*, Medium};
 
 #[derive(Debug)]
 pub struct RawSocketDesc {

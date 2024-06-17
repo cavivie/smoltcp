@@ -455,6 +455,32 @@ Currently, netmasks are not implemented, and so the only address this example ca
 is the other endpoint of the tap interface, `192.168.69.100`. It cannot reach itself because
 packets entering a tap interface do not loop back.
 
+### examples/anyport.rs
+
+_examples/anyport.rs_ emulates a network host that can respond to basic requests.
+
+The host is assigned the hardware address `02-00-00-00-00-01` and IPv4 address `192.168.69.1`.
+
+Read its [source code](/examples/anyport.rs), then run it as:
+
+```sh
+cargo run --example anyport -- --tap tap0
+```
+
+It responds to:
+
+  * pings (`ping 192.168.69.1`);
+  * UDP packets on port 6969 (`socat stdio udp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
+    where it will respond "hello" to any incoming connection indefinitely;
+  * UDP packets on port any (`socat stdio udp4-connect:192.168.69.1:{PORT_ANY} <<<"abcdefg"`),
+    where it will respond with reversed chunks of the input indefinitely;
+  * TCP connections on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969`),
+    where it will respond "hello" to any incoming connection and immediately close it;
+  * TCP connections on port any (`socat stdio tcp4-connect:192.168.69.1:{PORT_ANY}`),
+    where it will respond with reversed chunks of the input indefinitely.
+
+The buffers are only 64 bytes long, for convenience of testing resource exhaustion conditions.
+
 ### examples/server.rs
 
 _examples/server.rs_ emulates a network host that can respond to basic requests.
