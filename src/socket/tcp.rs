@@ -426,6 +426,9 @@ pub struct Socket<'a> {
     keep_alive: Option<Duration>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     hop_limit: Option<u8>,
+    /// The socket can recv any tcp connection. Set when set_any_port() is called and
+    /// when it is set to true, the listen endpoint port must be 0.
+    any_port: bool,
     /// Address passed to listen(). Listen address is set when listen() is called and
     /// used every time the socket is reset back to the LISTEN state.
     listen_endpoint: IpListenEndpoint,
@@ -520,6 +523,7 @@ impl<'a> Socket<'a> {
             timeout: None,
             keep_alive: None,
             hop_limit: None,
+            any_port: false,
             listen_endpoint: IpListenEndpoint::default(),
             tuple: None,
             local_seq_no: TcpSeqNumber::default(),
@@ -809,17 +813,32 @@ impl<'a> Socket<'a> {
         }
     }
 
+    /// Set the socket to recv any TCP connection.
+    ///
+    /// When it is set to true, the listen endpoint port must be 0.
+    pub fn set_any_port(&mut self, any_port: bool) {
+        self.any_port = any_port;
+    }
+
+    /// Return the any port of the socket if the socket can recv any TCP connection.
+    pub fn any_port(&self) -> bool {
+        self.any_port
+    }
+
     /// Start listening on the given endpoint.
     ///
     /// This function returns `Err(Error::InvalidState)` if the socket was already open
-    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
-    /// if the port in the given endpoint is zero.
+    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)` if any one of:
+    /// - the socket does not enable any port and the port in the given endpoint is zero.
+    /// - the socket has enabled any port and the port in the given endpoint is non zero.
     pub fn listen<T>(&mut self, local_endpoint: T) -> Result<(), ListenError>
     where
         T: Into<IpListenEndpoint>,
     {
         let local_endpoint = local_endpoint.into();
-        if local_endpoint.port == 0 {
+        if (self.any_port && local_endpoint.port != 0)
+            || (!self.any_port && local_endpoint.port == 0)
+        {
             return Err(ListenError::Unaddressable);
         }
 
@@ -832,7 +851,9 @@ impl<'a> Socket<'a> {
             // immediately get an error. The only way around this is to abort the socket first
             // before listening again, but this means that incoming connections can actually
             // get aborted between the abort() and the next listen().
-            if matches!(self.state, State::Listen) && self.listen_endpoint == local_endpoint {
+            if matches!(self.state, State::Listen)
+                && (self.any_port || self.listen_endpoint == local_endpoint)
+            {
                 return Ok(());
             } else {
                 return Err(ListenError::InvalidState);
@@ -1038,14 +1059,6 @@ impl<'a> Socket<'a> {
             State::Listen => false,
             _ => true,
         }
-    }
-
-    /// Return whether the socket is closed.
-    ///
-    /// This function returns true if the socket is in the `CLOSED` state.
-    #[inline]
-    pub fn is_closed(&self) -> bool {
-        matches!(self.state, State::Closed)
     }
 
     /// Return whether the transmit half of the full-duplex connection is open.
@@ -1433,7 +1446,9 @@ impl<'a> Socket<'a> {
                 Some(addr) => ip_repr.dst_addr() == addr,
                 None => true,
             };
-            addr_ok && repr.dst_port != 0 && repr.dst_port == self.listen_endpoint.port
+            addr_ok
+                && repr.dst_port != 0
+                && (self.any_port || repr.dst_port == self.listen_endpoint.port)
         }
     }
 
@@ -3025,6 +3040,9 @@ mod test {
     fn test_listen_validation() {
         let mut s = socket();
         assert_eq!(s.listen(0), Err(ListenError::Unaddressable));
+        s.set_any_port(true);
+        assert_eq!(s.listen(LOCAL_PORT), Err(ListenError::Unaddressable));
+        assert_eq!(s.listen(0), Ok(()));
     }
 
     #[test]
@@ -7312,6 +7330,37 @@ mod test {
     // =========================================================================================//
     // Tests for packet filtering.
     // =========================================================================================//
+
+    #[test]
+    fn test_aceept_any_port() {
+        let mut s = socket();
+
+        let mut tcp_repr = TcpRepr {
+            ack_number: None,
+            payload: &b"abcdef"[..],
+            ..SEND_TEMPL
+        };
+
+        let ip_repr = IpReprIpvX(IpvXRepr {
+            src_addr: REMOTE_ADDR,
+            dst_addr: LOCAL_ADDR,
+            next_header: IpProtocol::Tcp,
+            payload_len: tcp_repr.buffer_len(),
+            hop_limit: 64,
+        });
+
+        s.set_any_port(true);
+        s.listen(0).unwrap();
+        assert!(s.socket.accepts(&mut s.cx, &ip_repr, &tcp_repr));
+
+        s.reset();
+        s.set_any_port(false);
+        assert_eq!(s.listen(0), Err(ListenError::Unaddressable));
+        assert_eq!(s.listen(LOCAL_PORT), Ok(()));
+        assert!(s.socket.accepts(&mut s.cx, &ip_repr, &tcp_repr));
+        tcp_repr.dst_port = LOCAL_PORT + 1;
+        assert!(!s.socket.accepts(&mut s.cx, &ip_repr, &tcp_repr));
+    }
 
     #[test]
     fn test_doesnt_accept_wrong_port() {

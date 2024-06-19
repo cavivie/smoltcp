@@ -73,116 +73,56 @@ fn main() {
     //     .unwrap();
 
     // Create sockets
-    let udp1_rx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; 65535],
-    );
-    let udp1_tx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; 65535],
-    );
-    let udp1_socket = udp::Socket::new(udp1_rx_buffer, udp1_tx_buffer);
-
-    let udp2_rx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; 65535],
-    );
-    let udp2_tx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; 65535],
-    );
-    let mut udp2_socket = udp::Socket::new(udp2_rx_buffer, udp2_tx_buffer);
-    udp2_socket.set_any_port(true);
-
-    let tcp1_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
-    let tcp1_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
-    let tcp1_socket = tcp::Socket::new(tcp1_rx_buffer, tcp1_tx_buffer);
-
-    let tcp2_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
-    let tcp2_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
-    let mut tcp2_socket = tcp::Socket::new(tcp2_rx_buffer, tcp2_tx_buffer);
-    tcp2_socket.set_any_port(true);
+    let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
+    let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
+    let mut tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
+    tcp_socket.set_any_port(true);
 
     // prioritize matching port 6969, any port should be added last
     let mut sockets = SocketSet::new(vec![]);
-    let udp1_handle = sockets.add(udp1_socket);
-    let udp2_handle = sockets.add(udp2_socket);
-    let tcp1_handle = sockets.add(tcp1_socket);
-    let tcp2_handle = sockets.add(tcp2_socket);
+    let mut tcp_handle = sockets.add(tcp_socket);
 
+    let mut socks_map = std::collections::HashMap::new();
     let mut tcp_any_port_active = false;
     loop {
         let timestamp = Instant::now();
         iface.poll(timestamp, &mut device, &mut sockets);
 
-        // udp:*: respond "hello"
-        let socket = sockets.get_mut::<udp::Socket>(udp2_handle);
-        if !socket.is_open() {
-            // set any port can recv any udp datagram
-            socket.bind(0).unwrap()
-        }
-
-        let client = match socket.recv() {
-            Ok((data, endpoint)) => {
-                // incoming datagrams must have initialized local port
-                let local_port = endpoint.local_port.unwrap();
-                debug!("udp:{} recv data: {:?} from {}", local_port, data, endpoint);
-                let mut data = data.to_vec();
-                data.reverse();
-                Some((endpoint, data))
-            }
-            Err(_) => None,
-        };
-        if let Some((endpoint, data)) = client {
-            // incoming datagrams must have initialized local port
-            let local_port = endpoint.local_port.unwrap();
-            debug!("udp:{} send data: {:?} to {}", local_port, data, endpoint);
-            socket.send_slice(&data, endpoint).unwrap();
-        }
-
-        // udp:6969: respond "hello"
-        let socket = sockets.get_mut::<udp::Socket>(udp1_handle);
-        if !socket.is_open() {
-            socket.bind(6969).unwrap()
-        }
-
-        let client = match socket.recv() {
-            Ok((data, endpoint)) => {
-                debug!("udp:6969 recv data: {:?} from {}", data, endpoint);
-                Some((endpoint, b"hello"))
-            }
-            Err(_) => None,
-        };
-        if let Some((endpoint, data)) = client {
-            debug!("udp:6969 send data: {:?} to {}", data, endpoint,);
-            socket.send_slice(data, endpoint).unwrap();
-        }
-
-        // tcp:6969: respond "hello"
-        let socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
-        if !socket.is_open() {
-            socket.listen(6969).unwrap();
-        }
-
-        if socket.can_send() {
-            debug!("tcp:6969 send greeting");
-            writeln!(socket, "hello").unwrap();
-            debug!("tcp:6969 close");
-            socket.close();
-        }
+        let cur_tcp_handle = tcp_handle;
 
         // tcp:*: echo with reverse
-        let socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(cur_tcp_handle);
         if !socket.is_open() {
             // set any port can recv any tcp connection
-            socket.listen(0).unwrap()
+            socket.listen(0).unwrap();
         }
 
         if socket.is_active() && !tcp_any_port_active {
             debug!("tcp:* connected");
+            match (
+                socket.state(),
+                socket.local_endpoint(),
+                socket.remote_endpoint(),
+            ) {
+                (tcp::State::SynReceived, Some(local), Some(remote))
+                    if !socks_map.contains_key(&(local, remote)) =>
+                {
+                    debug!("tcp recv 4-tuple {:?}", (local, remote));
+                    // Create sockets
+                    let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
+                    let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
+                    let mut tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
+                    tcp_socket.set_any_port(true);
+
+                    tcp_handle = sockets.add(tcp_socket);
+                    socks_map.insert((local, remote), tcp_handle);
+                }
+                _ => unreachable!()
+            }
         } else if !socket.is_active() && tcp_any_port_active {
             debug!("tcp:* disconnected");
         }
+        let socket = sockets.get_mut::<tcp::Socket>(cur_tcp_handle);
         tcp_any_port_active = socket.is_active();
 
         let local = socket.local_endpoint();

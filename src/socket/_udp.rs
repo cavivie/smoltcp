@@ -21,7 +21,6 @@ pub struct UdpMetadata {
     /// determined using the algorithms of RFC 6724 (candidate source address selection) or some
     /// heuristic (for IPv4).
     pub local_address: Option<IpAddress>,
-    pub local_port: Option<u16>,
     pub meta: PacketMeta,
 }
 
@@ -30,7 +29,6 @@ impl<T: Into<IpEndpoint>> From<T> for UdpMetadata {
         Self {
             endpoint: value.into(),
             local_address: None,
-            local_port: None,
             meta: PacketMeta::default(),
         }
     }
@@ -118,10 +116,6 @@ impl std::error::Error for RecvError {}
 /// packet buffers.
 #[derive(Debug)]
 pub struct Socket<'a> {
-    /// The socket can recv any UDP datagram. Set when set_any_port() is called and
-    /// when it is set to true, the bound endpoint port must be 0.
-    any_port: bool,
-    is_bound: bool,
     endpoint: IpListenEndpoint,
     rx_buffer: PacketBuffer<'a>,
     tx_buffer: PacketBuffer<'a>,
@@ -137,8 +131,6 @@ impl<'a> Socket<'a> {
     /// Create an UDP socket with the given buffers.
     pub fn new(rx_buffer: PacketBuffer<'a>, tx_buffer: PacketBuffer<'a>) -> Socket<'a> {
         Socket {
-            any_port: false,
-            is_bound: false,
             endpoint: IpListenEndpoint::default(),
             rx_buffer,
             tx_buffer,
@@ -218,27 +210,14 @@ impl<'a> Socket<'a> {
         self.hop_limit = hop_limit
     }
 
-    /// Set the socket to recv any UDP datagram.
-    ///
-    /// When it is set to true, the listen endpoint port must be 0.
-    pub fn set_any_port(&mut self, any_port: bool) {
-        self.any_port = any_port;
-    }
-
-    /// Return the any port of the socket if the socket can recv any UDP datagram.
-    pub fn any_port(&self) -> bool {
-        self.any_port
-    }
-
     /// Bind the socket to the given endpoint.
     ///
     /// This function returns `Err(Error::Illegal)` if the socket was open
-    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`if:
-    /// - the socket does not enable any port and the port in the given endpoint is zero.
-    /// - the socket has enabled any port and the port in the given endpoint is non zero.
+    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
+    /// if the port in the given endpoint is zero.
     pub fn bind<T: Into<IpListenEndpoint>>(&mut self, endpoint: T) -> Result<(), BindError> {
         let endpoint = endpoint.into();
-        if (self.any_port && endpoint.port != 0) || (!self.any_port && endpoint.port == 0) {
+        if endpoint.port == 0 {
             return Err(BindError::Unaddressable);
         }
 
@@ -246,7 +225,6 @@ impl<'a> Socket<'a> {
             return Err(BindError::InvalidState);
         }
 
-        self.is_bound = true;
         self.endpoint = endpoint;
 
         #[cfg(feature = "async")]
@@ -262,7 +240,6 @@ impl<'a> Socket<'a> {
     pub fn close(&mut self) {
         // Clear the bound endpoint of the socket.
         self.endpoint = IpListenEndpoint::default();
-        self.is_bound = false;
 
         // Reset the RX and TX buffers of the socket.
         self.tx_buffer.reset();
@@ -278,7 +255,7 @@ impl<'a> Socket<'a> {
     /// Check whether the socket is open.
     #[inline]
     pub fn is_open(&self) -> bool {
-        self.is_bound
+        self.endpoint.port != 0
     }
 
     /// Check whether the transmit buffer is full.
@@ -320,13 +297,9 @@ impl<'a> Socket<'a> {
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
-    /// This function returns one of:
-    /// - `Err(Error::Exhausted)` if the transmit buffer is full,
-    /// - `Err(Error::Unaddressable)` if matches any one of below:
-    ///    * the socket is not bound ([`is_open`](Socket::is_open)).
-    ///    * the socket has enabled any port but local port is unspecified.
-    ///    * remote port, or remote address are unspecified.
-    /// - `Err(Error::Truncated)` if there is not enough transmit buffer capacity
+    /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full,
+    /// `Err(Error::Unaddressable)` if local or remote port, or remote address are unspecified,
+    /// and `Err(Error::Truncated)` if there is not enough transmit buffer capacity
     /// to ever send this packet.
     pub fn send(
         &mut self,
@@ -334,10 +307,7 @@ impl<'a> Socket<'a> {
         meta: impl Into<UdpMetadata>,
     ) -> Result<&mut [u8], SendError> {
         let meta = meta.into();
-        if !self.is_open() {
-            return Err(SendError::Unaddressable);
-        }
-        if self.any_port && meta.local_port.is_none() {
+        if self.endpoint.port == 0 {
             return Err(SendError::Unaddressable);
         }
         if meta.endpoint.addr.is_unspecified() {
@@ -490,9 +460,6 @@ impl<'a> Socket<'a> {
     }
 
     pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
-        if self.any_port {
-            return true;
-        }
         if self.endpoint.port != repr.dst_port {
             return false;
         }
@@ -519,10 +486,6 @@ impl<'a> Socket<'a> {
 
         let size = payload.len();
 
-        let local_endpoint = IpEndpoint {
-            addr: ip_repr.dst_addr(),
-            port: repr.dst_port,
-        };
         let remote_endpoint = IpEndpoint {
             addr: ip_repr.src_addr(),
             port: repr.src_port,
@@ -530,7 +493,7 @@ impl<'a> Socket<'a> {
 
         net_trace!(
             "udp:{}:{}: receiving {} octets",
-            local_endpoint,
+            self.endpoint,
             remote_endpoint,
             size
         );
@@ -538,7 +501,6 @@ impl<'a> Socket<'a> {
         let metadata = UdpMetadata {
             endpoint: remote_endpoint,
             local_address: Some(ip_repr.dst_addr()),
-            local_port: Some(repr.dst_port),
             meta,
         };
 
@@ -546,7 +508,7 @@ impl<'a> Socket<'a> {
             Ok(buf) => buf.copy_from_slice(payload),
             Err(_) => net_trace!(
                 "udp:{}:{}: buffer full, dropped incoming packet",
-                local_endpoint,
+                self.endpoint,
                 remote_endpoint
             ),
         }
@@ -581,31 +543,16 @@ impl<'a> Socket<'a> {
                     },
                 }
             };
-            let src_port = match packet_meta.local_port {
-                Some(p) => p,
-                _ if !self.any_port => endpoint.port,
-                _ => {
-                    net_trace!(
-                        "udp:{}:{}: local port must be set when any port is enabled, dropping.",
-                        endpoint,
-                        packet_meta.endpoint
-                    );
-                    return Ok(());
-                }
-            };
 
             net_trace!(
                 "udp:{}:{}: sending {} octets",
-                IpListenEndpoint {
-                    addr: endpoint.addr,
-                    port: src_port,
-                },
+                endpoint,
                 packet_meta.endpoint,
                 payload_buf.len()
             );
 
             let repr = UdpRepr {
-                src_port,
+                src_port: endpoint.port,
                 dst_port: packet_meta.endpoint.port,
             };
             let ip_repr = IpRepr::new(
@@ -704,7 +651,6 @@ mod test {
         // Would be great as a const once we have const `.into()`.
         UdpMetadata {
             local_address: Some(LOCAL_ADDR.into()),
-            local_port: Some(LOCAL_PORT),
             ..REMOTE_END.into()
         }
     }
@@ -749,15 +695,6 @@ mod test {
     fn test_bind_unaddressable() {
         let mut socket = socket(buffer(0), buffer(0));
         assert_eq!(socket.bind(0), Err(BindError::Unaddressable));
-        socket.set_any_port(true);
-        assert_eq!(socket.bind(LOCAL_PORT), Err(BindError::Unaddressable));
-    }
-
-    #[test]
-    fn test_bind_any_port() {
-        let mut socket = socket(buffer(0), buffer(0));
-        socket.set_any_port(true);
-        assert_eq!(socket.bind(0), Ok(()));
     }
 
     #[test]
@@ -782,20 +719,6 @@ mod test {
             socket.send_slice(b"abcdef", REMOTE_END),
             Err(SendError::Unaddressable)
         );
-        socket.set_any_port(true);
-        assert_eq!(socket.bind(0), Ok(()));
-        assert_eq!(
-            socket.send_slice(
-                b"abcdef",
-                UdpMetadata {
-                    local_port: None,
-                    ..REMOTE_END.into()
-                }
-            ),
-            Err(SendError::Unaddressable)
-        );
-        socket.close();
-        socket.set_any_port(false);
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
         assert_eq!(
             socket.send_slice(
@@ -828,31 +751,6 @@ mod test {
         assert_eq!(
             socket.send_slice(b"abcdef", remote_metadata_with_local()),
             Ok(())
-        );
-    }
-
-    #[test]
-    fn test_send_any_port() {
-        let (mut iface, _, _) = setup(Medium::Ip);
-        let cx = iface.context();
-        let mut socket = socket(buffer(1), buffer(1));
-        socket.set_any_port(true);
-        assert_eq!(socket.bind(0), Ok(()));
-        assert_eq!(
-            socket.send_slice(b"abcdef", remote_metadata_with_local()),
-            Ok(())
-        );
-
-        socket.process(
-            cx,
-            PacketMeta::default(),
-            &REMOTE_IP_REPR,
-            &REMOTE_UDP_REPR,
-            PAYLOAD,
-        );
-        assert_eq!(
-            socket.recv(),
-            Ok((&b"abcdef"[..], remote_metadata_with_local()))
         );
     }
 
@@ -1075,27 +973,6 @@ mod test {
             }),
             Ok(())
         );
-    }
-
-    #[rstest]
-    #[case::ip(Medium::Ip)]
-    #[cfg(feature = "medium-ip")]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    #[case::ieee802154(Medium::Ieee802154)]
-    #[cfg(feature = "medium-ieee802154")]
-    fn test_accept_any_port(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(1), buffer(0));
-        socket.set_any_port(true);
-        assert_eq!(socket.bind(0), Ok(()));
-
-        let mut udp_repr = REMOTE_UDP_REPR;
-        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &udp_repr));
-        udp_repr.dst_port += 1;
-        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &udp_repr));
     }
 
     #[rstest]
