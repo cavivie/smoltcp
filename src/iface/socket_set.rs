@@ -139,6 +139,20 @@ impl<'a> SocketSet<'a> {
         self.items_mut().map(|i| (i.meta.handle, &mut i.socket))
     }
 
+    /// Checks the handle refers to a valid socket.
+    /// 
+    /// Returns true if the handle refers to a valid socket,
+    /// or false if matches any of the following:
+    /// - the handle does not belong to this socket set,
+    /// - the handle refers to a socket has the wrong type.
+    pub fn check<T: AnySocket<'a>>(&self, handle: SocketHandle) -> bool {
+        self.sockets
+            .get(handle.0)
+            .and_then(|socket| socket.inner.as_ref())
+            .and_then(|item| T::downcast(&item.socket))
+            .is_some()
+    }
+
     /// Iterate every socket in this set.
     pub(crate) fn items(&self) -> impl Iterator<Item = &Item<'a>> + '_ {
         self.sockets.iter().filter_map(|x| x.inner.as_ref())
