@@ -183,9 +183,9 @@ impl InterfaceInner {
         })
     }
 
-    pub(super) fn process_ipv6<'frame>(
+    pub(super) fn process_ipv6<'frame, 'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
     ) -> Option<Packet<'frame>> {
@@ -297,9 +297,9 @@ impl InterfaceInner {
 
     /// Given the next header value forward the payload onto the correct process
     /// function.
-    fn process_nxt_hdr<'frame>(
+    fn process_nxt_hdr<'frame, 'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
         ipv6_repr: Ipv6Repr,
         nxt_hdr: IpProtocol,
@@ -340,9 +340,9 @@ impl InterfaceInner {
         }
     }
 
-    pub(super) fn process_icmpv6<'frame>(
+    pub(super) fn process_icmpv6<'frame, 'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        _sockets: &mut SocketSet,
+        _sockets: &mut S,
         ip_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {

@@ -1,3 +1,5 @@
+use crate::iface::AnySocketSet;
+
 use super::*;
 
 impl Interface {
@@ -87,13 +89,13 @@ impl InterfaceInner {
         })
     }
 
-    pub(super) fn process_ipv4<'a>(
+    pub(super) fn process_ipv4<'packet, 'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
-        ipv4_packet: &Ipv4Packet<&'a [u8]>,
-        frag: &'a mut FragmentsBuffer,
-    ) -> Option<Packet<'a>> {
+        ipv4_packet: &Ipv4Packet<&'packet [u8]>,
+        frag: &'packet mut FragmentsBuffer,
+    ) -> Option<Packet<'packet>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) && !ipv4_repr.src_addr.is_unspecified() {
             // Discard packets with non-unicast source addresses but allow unspecified
@@ -292,9 +294,9 @@ impl InterfaceInner {
         }
     }
 
-    pub(super) fn process_icmpv4<'frame>(
+    pub(super) fn process_icmpv4<'frame, 'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        _sockets: &mut SocketSet,
+        _sockets: &mut S,
         ip_repr: Ipv4Repr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {

@@ -1,11 +1,11 @@
 use super::*;
 
-use crate::socket::tcp::{Socket, SocketBuffer};
+use crate::socket::tcp::Socket;
 
 impl InterfaceInner {
-    pub(crate) fn process_tcp<'frame>(
+    pub(crate) fn process_tcp<'frame, 'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
@@ -29,6 +29,8 @@ impl InterfaceInner {
             }
         }
 
+        // use crate::socket::tcp::{Socket, SocketBuffer};
+        //
         // let mut sockets_to_remove = vec![];
         // for (tcp_socket, tcp_handle) in sockets
         //     .items_mut()

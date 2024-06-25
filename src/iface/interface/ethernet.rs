@@ -1,9 +1,9 @@
 use super::*;
 
 impl InterfaceInner {
-    pub(super) fn process_ethernet<'frame>(
+    pub(super) fn process_ethernet<'frame, 'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: crate::phy::PacketMeta,
         frame: &'frame [u8],
         fragments: &'frame mut FragmentsBuffer,

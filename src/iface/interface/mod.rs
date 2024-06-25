@@ -40,7 +40,7 @@ use super::fragmentation::{Fragmenter, FragmentsBuffer};
 
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use super::neighbor::{Answer as NeighborAnswer, Cache as NeighborCache};
-use super::socket_set::SocketSet;
+use super::socket_set::AnySocketSet;
 use crate::config::{
     IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT,
     IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
@@ -396,14 +396,15 @@ impl Interface {
     /// This function returns a boolean value indicating whether any packets were
     /// processed or emitted, and thus, whether the readiness of any socket might
     /// have changed.
-    pub fn poll<D>(
+    pub fn poll<'socket, D, S>(
         &mut self,
         timestamp: Instant,
         device: &mut D,
-        sockets: &mut SocketSet<'_>,
+        sockets: &mut S,
     ) -> bool
     where
         D: Device + ?Sized,
+        S: AnySocketSet<'socket>,
     {
         self.inner.now = timestamp;
 
@@ -459,7 +460,11 @@ impl Interface {
     ///
     /// [poll]: #method.poll
     /// [Instant]: struct.Instant.html
-    pub fn poll_at(&mut self, timestamp: Instant, sockets: &SocketSet<'_>) -> Option<Instant> {
+    pub fn poll_at<'socket, S: AnySocketSet<'socket>>(
+        &mut self,
+        timestamp: Instant,
+        sockets: &'socket S,
+    ) -> Option<Instant> {
         self.inner.now = timestamp;
 
         #[cfg(feature = "_proto-fragmentation")]
@@ -493,7 +498,11 @@ impl Interface {
     ///
     /// [poll]: #method.poll
     /// [Duration]: struct.Duration.html
-    pub fn poll_delay(&mut self, timestamp: Instant, sockets: &SocketSet<'_>) -> Option<Duration> {
+    pub fn poll_delay<'socket, S: AnySocketSet<'socket>>(
+        &mut self,
+        timestamp: Instant,
+        sockets: &'socket S,
+    ) -> Option<Duration> {
         match self.poll_at(timestamp, sockets) {
             Some(poll_at) if timestamp < poll_at => Some(poll_at - timestamp),
             Some(_) => Some(Duration::from_millis(0)),
@@ -501,9 +510,10 @@ impl Interface {
         }
     }
 
-    fn socket_ingress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    fn socket_ingress<'socket, D, S>(&mut self, device: &mut D, sockets: &mut S) -> bool
     where
         D: Device + ?Sized,
+        S: AnySocketSet<'socket>,
     {
         let mut processed_any = false;
 
@@ -572,9 +582,10 @@ impl Interface {
         processed_any
     }
 
-    fn socket_egress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    fn socket_egress<'socket, D, S>(&mut self, device: &mut D, sockets: &mut S) -> bool
     where
         D: Device + ?Sized,
+        S: AnySocketSet<'socket>,
     {
         let _caps = device.capabilities();
 
@@ -779,9 +790,9 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "medium-ip")]
-    fn process_ip<'frame>(
+    fn process_ip<'frame, 'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
         ip_payload: &'frame [u8],
         frag: &'frame mut FragmentsBuffer,
@@ -804,9 +815,9 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "socket-raw")]
-    fn raw_socket_filter(
+    fn raw_socket_filter<'socket, S: AnySocketSet<'socket>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         ip_repr: &IpRepr,
         ip_payload: &[u8],
     ) -> bool {
