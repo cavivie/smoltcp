@@ -1,5 +1,5 @@
 use core::fmt;
-use managed::ManagedSlice;
+use managed::{ManagedSlice, SlotVec};
 
 use super::socket_meta::Meta;
 use crate::socket::{AnySocket, Socket};
@@ -8,14 +8,7 @@ use crate::socket::{AnySocket, Socket};
 ///
 /// This is public so you can use it to allocate space for storing
 /// sockets when creating an Interface.
-#[derive(Debug, Default)]
-pub struct SocketStorage<'a> {
-    inner: Option<Item<'a>>,
-}
-
-impl<'a> SocketStorage<'a> {
-    pub const EMPTY: Self = Self { inner: None };
-}
+pub type SocketStorage<'a> = Item<'a>;
 
 /// An item of a socket set.
 #[derive(Debug)]
@@ -42,16 +35,16 @@ impl fmt::Display for SocketHandle {
 /// `SocketSet<'static>`.
 #[derive(Debug)]
 pub struct SocketSet<'a> {
-    sockets: ManagedSlice<'a, SocketStorage<'a>>,
+    sockets: SlotVec<'a, SocketStorage<'a>>,
 }
 
 impl<'a> SocketSet<'a> {
     /// Create a socket set using the provided storage.
     pub fn new<SocketsT>(sockets: SocketsT) -> SocketSet<'a>
     where
-        SocketsT: Into<ManagedSlice<'a, SocketStorage<'a>>>,
+        SocketsT: Into<ManagedSlice<'a, Option<SocketStorage<'a>>>>,
     {
-        let sockets = sockets.into();
+        let sockets = SlotVec::new(sockets.into());
         SocketSet { sockets }
     }
 
@@ -60,34 +53,18 @@ impl<'a> SocketSet<'a> {
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
     pub fn add<T: AnySocket<'a>>(&mut self, socket: T) -> SocketHandle {
-        fn put<'a>(index: usize, slot: &mut SocketStorage<'a>, socket: Socket<'a>) -> SocketHandle {
-            net_trace!("[{}]: adding", index);
-            let handle = SocketHandle(index);
-            let mut meta = Meta::default();
-            meta.handle = handle;
-            *slot = SocketStorage {
-                inner: Some(Item { meta, socket }),
-            };
-            handle
-        }
-
-        let socket = socket.upcast();
-
-        for (index, slot) in self.sockets.iter_mut().enumerate() {
-            if slot.inner.is_none() {
-                return put(index, slot, socket);
-            }
-        }
-
-        match &mut self.sockets {
-            ManagedSlice::Borrowed(_) => panic!("adding a socket to a full SocketSet"),
-            #[cfg(feature = "alloc")]
-            ManagedSlice::Owned(sockets) => {
-                sockets.push(SocketStorage { inner: None });
-                let index = sockets.len() - 1;
-                put(index, &mut sockets[index], socket)
-            }
-        }
+        let index = self
+            .sockets
+            .push_with(|index| {
+                net_trace!("[{}]: adding", index);
+                let handle = SocketHandle(index);
+                let mut meta = Meta::default();
+                meta.handle = handle;
+                let socket = socket.upcast();
+                Item { meta, socket }
+            })
+            .expect("adding a socket to a full SocketSet");
+        self.sockets[index].meta.handle
     }
 
     /// Get a socket from the set by its handle, as mutable.
@@ -96,12 +73,11 @@ impl<'a> SocketSet<'a> {
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
     pub fn get<T: AnySocket<'a>>(&self, handle: SocketHandle) -> &T {
-        match self.sockets[handle.0].inner.as_ref() {
-            Some(item) => {
-                T::downcast(&item.socket).expect("handle refers to a socket of a wrong type")
-            }
-            None => panic!("handle does not refer to a valid socket"),
-        }
+        let item = self
+            .sockets
+            .get(handle.0)
+            .expect("handle does not refer to a valid socket");
+        T::downcast(&item.socket).expect("handle refers to a socket of a wrong type")
     }
 
     /// Get a mutable socket from the set by its handle, as mutable.
@@ -110,11 +86,11 @@ impl<'a> SocketSet<'a> {
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
     pub fn get_mut<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
-        match self.sockets[handle.0].inner.as_mut() {
-            Some(item) => T::downcast_mut(&mut item.socket)
-                .expect("handle refers to a socket of a wrong type"),
-            None => panic!("handle does not refer to a valid socket"),
-        }
+        let item = self
+            .sockets
+            .get_mut(handle.0)
+            .expect("handle does not refer to a valid socket");
+        T::downcast_mut(&mut item.socket).expect("handle refers to a socket of a wrong type")
     }
 
     /// Remove a socket from the set, without changing its state.
@@ -123,29 +99,34 @@ impl<'a> SocketSet<'a> {
     /// This function may panic if the handle does not belong to this socket set.
     pub fn remove(&mut self, handle: SocketHandle) -> Socket<'a> {
         net_trace!("[{}]: removing", handle.0);
-        match self.sockets[handle.0].inner.take() {
-            Some(item) => item.socket,
-            None => panic!("handle does not refer to a valid socket"),
-        }
+        self.sockets
+            .remove(handle.0)
+            .map(|item| item.socket)
+            .expect("handle does not refer to a valid socket")
     }
 
     /// Get an iterator to the inner sockets.
     pub fn iter(&self) -> impl Iterator<Item = (SocketHandle, &Socket<'a>)> {
-        self.items().map(|i| (i.meta.handle, &i.socket))
+        self.sockets.iter().map(|i| (i.meta.handle, &i.socket))
     }
 
     /// Get a mutable iterator to the inner sockets.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'a>)> {
-        self.items_mut().map(|i| (i.meta.handle, &mut i.socket))
+    pub fn iter_mut(&'a mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'a>)> {
+        self.sockets
+            .iter_mut()
+            .map(|i| (i.meta.handle, &mut i.socket))
     }
 
-    /// Iterate every socket in this set.
-    pub(crate) fn items(&self) -> impl Iterator<Item = &Item<'a>> + '_ {
-        self.sockets.iter().filter_map(|x| x.inner.as_ref())
-    }
-
-    /// Iterate every socket in this set.
-    pub(crate) fn items_mut(&mut self) -> impl Iterator<Item = &mut Item<'a>> + '_ {
-        self.sockets.iter_mut().filter_map(|x| x.inner.as_mut())
+    /// Checks the handle refers to a valid socket.
+    ///
+    /// Returns true if the handle refers to a valid socket,
+    /// or false if matches any of the following:
+    /// - the handle does not belong to this socket set,
+    /// - the handle refers to a socket has the wrong type.
+    pub fn check<T: AnySocket<'a>>(&self, handle: SocketHandle) -> bool {
+        self.sockets
+            .get(handle.0)
+            .and_then(|item| T::downcast(&item.socket))
+            .is_some()
     }
 }
