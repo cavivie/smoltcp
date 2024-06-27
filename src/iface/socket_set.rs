@@ -5,22 +5,46 @@ use crate::socket::{AnySocket, Socket};
 
 pub use self::impl_socket_set::SocketSet;
 
+/// Opaque struct with space for storing one handle.
+///
 /// A handle, identifying a socket in an Interface.
+///
+/// The [`new`] method can be used to bind a unique index id to a handle,
+/// which is usually the index generated when it is added to a socket set
+/// so that it can be retrieved from the socket set. Of course, external
+/// relationships can also be provided to index the corresponding socket.
+///
+/// For simplicity, we do not set the field `handle_id` as a generic input.
+/// When customizing the [`AnySocketSet`] implementation, external relations
+/// need to decide the conversion themselves.
+///
+/// [`new`]: SocketHandle::new
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SocketHandle(usize);
+
+impl SocketHandle {
+    pub fn new(handle_id: usize) -> Self {
+        Self(handle_id)
+    }
+}
 
 /// Opaque struct with space for storing one socket.
 ///
 /// This is public so you can use it to allocate space for storing
 /// sockets when creating an Interface.
-pub type SocketStorage<'a> = Item<'a>;
-
-/// An item of a socket set.
 #[derive(Debug)]
-pub(crate) struct Item<'a> {
+pub struct SocketStorage<'a> {
     pub(crate) meta: Meta,
     pub(crate) socket: Socket<'a>,
+}
+
+impl<'a> SocketStorage<'a> {
+    pub fn new(handle: SocketHandle, socket: Socket<'a>) -> Self {
+        let mut meta = Meta::default();
+        meta.handle = handle;
+        Self { meta, socket }
+    }
 }
 
 impl fmt::Display for SocketHandle {
@@ -30,17 +54,22 @@ impl fmt::Display for SocketHandle {
 }
 
 pub trait AnySocketSet<'a> {
-    /// Get an iterator to the inner sockets.
-    fn items(&'a self) -> impl Iterator<Item = &Item<'a>> + '_;
+    /// Returns an iterator over the items in the socket set, immutable version..
+    fn items<'s>(&'s self) -> impl Iterator<Item = &'s SocketStorage<'a>>
+    where
+        'a: 's;
 
-    /// Get a mutable iterator to the inner sockets.
-    fn items_mut(&'a mut self) -> impl Iterator<Item = &mut Item<'a>> + '_;
+    /// Returns an iterator over the items in the socket set, mutable version.
+    fn items_mut<'s>(&'s mut self) -> impl Iterator<Item = &'s mut SocketStorage<'a>>
+    where
+        'a: 's;
 }
 
+/// A default implementation for [`AnySocketSet`].
 mod impl_socket_set {
     use managed::{ManagedSlice, SlotVec};
 
-    use super::{AnySocket, AnySocketSet, Item, Meta, Socket, SocketHandle, SocketStorage};
+    use super::{AnySocket, AnySocketSet, Socket, SocketHandle, SocketStorage};
 
     /// An extensible set of sockets.
     ///
@@ -71,11 +100,9 @@ mod impl_socket_set {
                 .sockets
                 .push_with(|index| {
                     net_trace!("[{}]: adding", index);
-                    let handle = SocketHandle(index);
-                    let mut meta = Meta::default();
-                    meta.handle = handle;
+                    let handle = SocketHandle::new(index);
                     let socket = socket.upcast();
-                    Item { meta, socket }
+                    SocketStorage::new(handle, socket)
                 })
                 .expect("adding a socket to a full SocketSet");
             self.sockets[index].meta.handle
@@ -119,18 +146,6 @@ mod impl_socket_set {
                 .expect("handle does not refer to a valid socket")
         }
 
-        /// Get an iterator to the inner sockets.
-        pub fn iter(&self) -> impl Iterator<Item = (SocketHandle, &Socket<'a>)> {
-            self.sockets.iter().map(|i| (i.meta.handle, &i.socket))
-        }
-
-        /// Get a mutable iterator to the inner sockets.
-        pub fn iter_mut(&'a mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'a>)> {
-            self.sockets
-                .iter_mut()
-                .map(|i| (i.meta.handle, &mut i.socket))
-        }
-
         /// Checks the handle refers to a valid socket.
         ///
         /// Returns true if the handle refers to a valid socket,
@@ -146,11 +161,17 @@ mod impl_socket_set {
     }
 
     impl<'a> AnySocketSet<'a> for SocketSet<'a> {
-        fn items(&'a self) -> impl Iterator<Item = &Item<'a>> + '_ {
+        fn items<'s>(&'s self) -> impl Iterator<Item = &'s SocketStorage<'a>>
+        where
+            'a: 's,
+        {
             self.sockets.iter()
         }
 
-        fn items_mut(&'a mut self) -> impl Iterator<Item = &mut Item<'a>> + '_ {
+        fn items_mut<'s>(&'s mut self) -> impl Iterator<Item = &'s mut SocketStorage<'a>>
+        where
+            'a: 's,
+        {
             self.sockets.iter_mut()
         }
     }

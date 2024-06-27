@@ -460,11 +460,10 @@ impl Interface {
     ///
     /// [poll]: #method.poll
     /// [Instant]: struct.Instant.html
-    pub fn poll_at<'socket, S: AnySocketSet<'socket>>(
-        &mut self,
-        timestamp: Instant,
-        sockets: &'socket S,
-    ) -> Option<Instant> {
+    pub fn poll_at<'socket, S>(&mut self, timestamp: Instant, sockets: &S) -> Option<Instant>
+    where
+        S: AnySocketSet<'socket>,
+    {
         self.inner.now = timestamp;
 
         #[cfg(feature = "_proto-fragmentation")]
@@ -498,11 +497,10 @@ impl Interface {
     ///
     /// [poll]: #method.poll
     /// [Duration]: struct.Duration.html
-    pub fn poll_delay<'socket, S: AnySocketSet<'socket>>(
-        &mut self,
-        timestamp: Instant,
-        sockets: &'socket S,
-    ) -> Option<Duration> {
+    pub fn poll_delay<'socket, S>(&mut self, timestamp: Instant, sockets: &S) -> Option<Duration>
+    where
+        S: AnySocketSet<'socket>,
+    {
         match self.poll_at(timestamp, sockets) {
             Some(poll_at) if timestamp < poll_at => Some(poll_at - timestamp),
             Some(_) => Some(Duration::from_millis(0)),
@@ -790,13 +788,16 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "medium-ip")]
-    fn process_ip<'frame, 'socket, S: AnySocketSet<'socket>>(
+    fn process_ip<'frame, 'socket, S>(
         &mut self,
         sockets: &mut S,
         meta: PacketMeta,
         ip_payload: &'frame [u8],
         frag: &'frame mut FragmentsBuffer,
-    ) -> Option<Packet<'frame>> {
+    ) -> Option<Packet<'frame>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         match IpVersion::of_packet(ip_payload) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
@@ -815,12 +816,15 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "socket-raw")]
-    fn raw_socket_filter<'socket, S: AnySocketSet<'socket>>(
+    fn raw_socket_filter<'socket, S>(
         &mut self,
         sockets: &mut S,
         ip_repr: &IpRepr,
         ip_payload: &[u8],
-    ) -> bool {
+    ) -> bool
+    where
+        S: AnySocketSet<'socket>,
+    {
         let mut handled_by_raw_socket = false;
 
         // Pass every IP packet to all raw sockets we have registered.

@@ -89,13 +89,16 @@ impl InterfaceInner {
         })
     }
 
-    pub(super) fn process_ipv4<'packet, 'socket, S: AnySocketSet<'socket>>(
+    pub(super) fn process_ipv4<'packet, 'socket, S>(
         &mut self,
         sockets: &mut S,
         meta: PacketMeta,
         ipv4_packet: &Ipv4Packet<&'packet [u8]>,
         frag: &'packet mut FragmentsBuffer,
-    ) -> Option<Packet<'packet>> {
+    ) -> Option<Packet<'packet>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) && !ipv4_repr.src_addr.is_unspecified() {
             // Discard packets with non-unicast source addresses but allow unspecified
@@ -294,12 +297,15 @@ impl InterfaceInner {
         }
     }
 
-    pub(super) fn process_icmpv4<'frame, 'socket, S: AnySocketSet<'socket>>(
+    pub(super) fn process_icmpv4<'frame, 'socket, S>(
         &mut self,
         _sockets: &mut S,
         ip_repr: Ipv4Repr,
         ip_payload: &'frame [u8],
-    ) -> Option<Packet<'frame>> {
+    ) -> Option<Packet<'frame>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let icmp_packet = check!(Icmpv4Packet::new_checked(ip_payload));
         let icmp_repr = check!(Icmpv4Repr::parse(&icmp_packet, &self.caps.checksum));
 
