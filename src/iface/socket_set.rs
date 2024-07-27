@@ -1,7 +1,7 @@
 use core::fmt;
 
 use super::socket_meta::Meta;
-use crate::socket::{AnySocket, Socket};
+use crate::socket::{AnySocket, Socket, SocketKind};
 
 pub use self::impl_socket_set::SocketSet;
 
@@ -27,6 +27,10 @@ impl SocketHandle {
     pub fn new(handle_id: usize) -> Self {
         Self(handle_id)
     }
+
+    pub fn handle_id(&self) -> usize {
+        self.0
+    }
 }
 
 /// Opaque struct with space for storing one socket.
@@ -44,6 +48,22 @@ impl<'a> SocketStorage<'a> {
         let mut meta = Meta::default();
         meta.handle = handle;
         Self { meta, socket }
+    }
+
+    pub fn handle(&self) -> SocketHandle {
+        self.meta.handle
+    }
+
+    pub fn socket(self) -> Socket<'a> {
+        self.socket
+    }
+
+    pub fn socket_ref(&self) -> &Socket<'a> {
+        &self.socket
+    }
+
+    pub fn socket_mut(&mut self) -> &mut Socket<'a> {
+        &mut self.socket
     }
 }
 
@@ -63,11 +83,26 @@ pub trait AnySocketSet<'a> {
     fn items_mut<'s>(&'s mut self) -> impl Iterator<Item = &'s mut SocketStorage<'a>>
     where
         'a: 's;
+
+    /// Returns an iterator over the items in the socket set, immutable version..
+    fn filter<'s>(&'s self, kind: SocketKind) -> impl Iterator<Item = &'s SocketStorage<'a>>
+    where
+        'a: 's;
+
+    /// Returns an iterator over the items in the socket set, mutable version.
+    fn filter_mut<'s>(
+        &'s mut self,
+        kind: SocketKind,
+    ) -> impl Iterator<Item = &'s mut SocketStorage<'a>>
+    where
+        'a: 's;
 }
 
 /// A default implementation for [`AnySocketSet`].
 mod impl_socket_set {
     use managed::{ManagedSlice, SlotVec};
+
+    use crate::socket::SocketKind;
 
     use super::{AnySocket, AnySocketSet, Socket, SocketHandle, SocketStorage};
 
@@ -173,6 +208,25 @@ mod impl_socket_set {
             'a: 's,
         {
             self.sockets.iter_mut()
+        }
+
+        fn filter<'s>(&'s self, kind: SocketKind) -> impl Iterator<Item = &'s SocketStorage<'a>>
+        where
+            'a: 's,
+        {
+            // It's just a simple implmentation, we also could match for `per kind socket set`.
+            self.sockets.iter().filter(move |i| i.socket.kind() == kind)
+        }
+
+        fn filter_mut<'s>(
+            &'s mut self,
+            kind: SocketKind,
+        ) -> impl Iterator<Item = &'s mut SocketStorage<'a>>
+        where
+            'a: 's,
+        {
+            // It's just a simple implmentation, we also could match for `per kind socket set`.
+            self.sockets.iter_mut().filter(move |i| i.socket.kind() == kind)
         }
     }
 }

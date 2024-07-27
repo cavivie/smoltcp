@@ -22,7 +22,7 @@ impl InterfaceInner {
         ));
 
         for tcp_socket in sockets
-            .items_mut()
+            .filter_mut(SocketKind::Tcp)
             .filter_map(|i| Socket::downcast_mut(&mut i.socket))
         {
             if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {

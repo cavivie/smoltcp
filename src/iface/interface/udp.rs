@@ -29,7 +29,7 @@ impl InterfaceInner {
 
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
-            .items_mut()
+            .filter_mut(SocketKind::Udp)
             .filter_map(|i| UdpSocket::downcast_mut(&mut i.socket))
         {
             if udp_socket.accepts(self, &ip_repr, &udp_repr) {
@@ -40,7 +40,7 @@ impl InterfaceInner {
 
         #[cfg(feature = "socket-dns")]
         for dns_socket in sockets
-            .items_mut()
+            .filter_mut(SocketKind::Dns)
             .filter_map(|i| DnsSocket::downcast_mut(&mut i.socket))
         {
             if dns_socket.accepts(&ip_repr, &udp_repr) {

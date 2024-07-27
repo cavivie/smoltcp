@@ -45,6 +45,35 @@ pub(crate) enum PollAt {
     Ingress,
 }
 
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
+pub enum SocketKind {
+    #[cfg(feature = "socket-raw")]
+    Raw,
+    #[cfg(feature = "socket-icmp")]
+    Icmp,
+    #[cfg(feature = "socket-udp")]
+    Udp,
+    #[cfg(feature = "socket-tcp")]
+    Tcp,
+    #[cfg(feature = "socket-dhcpv4")]
+    Dhcpv4,
+    #[cfg(feature = "socket-dns")]
+    Dns,
+}
+
+impl<'a> Socket<'a> {
+    pub fn kind(&self) -> SocketKind {
+        match self {
+            Socket::Raw(_) => SocketKind::Raw,
+            Socket::Icmp(_) => SocketKind::Icmp,
+            Socket::Udp(_) => SocketKind::Udp,
+            Socket::Tcp(_) => SocketKind::Tcp,
+            Socket::Dhcpv4(_) => SocketKind::Dhcpv4,
+            Socket::Dns(_) => SocketKind::Dns,
+        }
+    }
+}
+
 /// A network socket.
 ///
 /// This enumeration abstracts the various types of sockets based on the IP protocol.

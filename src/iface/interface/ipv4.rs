@@ -163,7 +163,7 @@ impl InterfaceInner {
             {
                 let udp_packet = check!(UdpPacket::new_checked(ip_payload));
                 if let Some(dhcp_socket) = sockets
-                    .items_mut()
+                    .filter_mut(SocketKind::Dhcpv4)
                     .find_map(|i| Dhcpv4Socket::downcast_mut(&mut i.socket))
                 {
                     // First check for source and dest ports, then do `UdpRepr::parse` if they match.
@@ -314,7 +314,7 @@ impl InterfaceInner {
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
         for icmp_socket in _sockets
-            .items_mut()
+            .filter_mut(SocketKind::Icmp)
             .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
         {
             if icmp_socket.accepts_v4(self, &ip_repr, &icmp_repr) {

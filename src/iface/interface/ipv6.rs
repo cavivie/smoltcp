@@ -370,7 +370,7 @@ impl InterfaceInner {
         {
             use crate::socket::icmp::Socket as IcmpSocket;
             for icmp_socket in _sockets
-                .items_mut()
+                .filter_mut(SocketKind::Icmp)
                 .filter_map(|i| IcmpSocket::downcast_mut(&mut i.socket))
             {
                 if icmp_socket.accepts_v6(self, &ip_repr, &icmp_repr) {

@@ -829,7 +829,7 @@ impl InterfaceInner {
 
         // Pass every IP packet to all raw sockets we have registered.
         for raw_socket in sockets
-            .items_mut()
+            .filter_mut(SocketKind::Raw)
             .filter_map(|i| raw::Socket::downcast_mut(&mut i.socket))
         {
             if raw_socket.accepts(ip_repr) {
