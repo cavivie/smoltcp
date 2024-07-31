@@ -112,7 +112,7 @@ fn test_handle_udp_broadcast(
     let dst_addr = ip_repr.dst_addr();
 
     // Bind the socket to port 68
-    let socket = sockets.get_mut::<udp::Socket>(socket_handle);
+    let mut socket = sockets.get_mut::<udp::Socket>(socket_handle);
     assert_eq!(socket.bind(68), Ok(()));
     assert!(!socket.can_recv());
     assert!(socket.can_send());
@@ -129,7 +129,7 @@ fn test_handle_udp_broadcast(
     // Packet should be handled by bound UDP socket
     assert_eq!(
         iface.inner.process_udp(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             false,
             ip_repr,
@@ -140,7 +140,7 @@ fn test_handle_udp_broadcast(
 
     // Make sure the payload to the UDP packet processed by process_udp is
     // appended to the bound sockets rx_buffer
-    let socket = sockets.get_mut::<udp::Socket>(socket_handle);
+    let mut socket = sockets.get_mut::<udp::Socket>(socket_handle);
     assert!(socket.can_recv());
     assert_eq!(
         socket.recv(),

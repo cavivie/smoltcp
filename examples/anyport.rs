@@ -116,97 +116,109 @@ fn main() {
         iface.poll(timestamp, &mut device, &mut sockets);
 
         // udp:*: respond "hello"
-        let socket = sockets.get_mut::<udp::Socket>(udp2_handle);
-        if !socket.is_open() {
-            // set any port can recv any udp datagram
-            socket.bind(0).unwrap()
-        }
-
-        let client = match socket.recv() {
-            Ok((data, endpoint)) => {
+        {
+            let mut socket = sockets.get_mut::<udp::Socket>(udp2_handle);
+            if !socket.is_open() {
+                // set any port can recv any udp datagram
+                socket.bind(0).unwrap()
+            }
+    
+            let client = match socket.recv() {
+                Ok((data, endpoint)) => {
+                    // incoming datagrams must have initialized local port
+                    let local_port = endpoint.local_port.unwrap();
+                    debug!("udp:{} recv data: {:?} from {}", local_port, data, endpoint);
+                    let mut data = data.to_vec();
+                    data.reverse();
+                    Some((endpoint, data))
+                }
+                Err(_) => None,
+            };
+            if let Some((endpoint, data)) = client {
                 // incoming datagrams must have initialized local port
                 let local_port = endpoint.local_port.unwrap();
-                debug!("udp:{} recv data: {:?} from {}", local_port, data, endpoint);
-                let mut data = data.to_vec();
-                data.reverse();
-                Some((endpoint, data))
+                debug!("udp:{} send data: {:?} to {}", local_port, data, endpoint);
+                socket.send_slice(&data, endpoint).unwrap();
             }
-            Err(_) => None,
-        };
-        if let Some((endpoint, data)) = client {
-            // incoming datagrams must have initialized local port
-            let local_port = endpoint.local_port.unwrap();
-            debug!("udp:{} send data: {:?} to {}", local_port, data, endpoint);
-            socket.send_slice(&data, endpoint).unwrap();
+            // drop(socket);
         }
 
         // udp:6969: respond "hello"
-        let socket = sockets.get_mut::<udp::Socket>(udp1_handle);
-        if !socket.is_open() {
-            socket.bind(6969).unwrap()
-        }
-
-        let client = match socket.recv() {
-            Ok((data, endpoint)) => {
-                debug!("udp:6969 recv data: {:?} from {}", data, endpoint);
-                Some((endpoint, b"hello"))
+        {
+            let mut socket = sockets.get_mut::<udp::Socket>(udp1_handle);
+            if !socket.is_open() {
+                socket.bind(6969).unwrap()
             }
-            Err(_) => None,
-        };
-        if let Some((endpoint, data)) = client {
-            debug!("udp:6969 send data: {:?} to {}", data, endpoint,);
-            socket.send_slice(data, endpoint).unwrap();
+    
+            let client = match socket.recv() {
+                Ok((data, endpoint)) => {
+                    debug!("udp:6969 recv data: {:?} from {}", data, endpoint);
+                    Some((endpoint, b"hello"))
+                }
+                Err(_) => None,
+            };
+            if let Some((endpoint, data)) = client {
+                debug!("udp:6969 send data: {:?} to {}", data, endpoint,);
+                socket.send_slice(data, endpoint).unwrap();
+            }
+            // drop(socket);
         }
 
         // tcp:6969: respond "hello"
-        let socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
-        if !socket.is_open() {
-            socket.listen(6969).unwrap();
-        }
-
-        if socket.can_send() {
-            debug!("tcp:6969 send greeting");
-            writeln!(socket, "hello").unwrap();
-            debug!("tcp:6969 close");
-            socket.close();
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
+            if !socket.is_open() {
+                socket.listen(6969).unwrap();
+            }
+    
+            if socket.can_send() {
+                debug!("tcp:6969 send greeting");
+                writeln!(socket, "hello").unwrap();
+                debug!("tcp:6969 close");
+                socket.close();
+            }
+            // drop(socket);
         }
 
         // tcp:*: echo with reverse
-        let socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
-        if !socket.is_open() {
-            // set any port can recv any tcp connection
-            socket.listen(0).unwrap()
-        }
-
-        if socket.is_active() && !tcp_any_port_active {
-            debug!("tcp:* connected");
-        } else if !socket.is_active() && tcp_any_port_active {
-            debug!("tcp:* disconnected");
-        }
-        tcp_any_port_active = socket.is_active();
-
-        let local = socket.local_endpoint();
-        if socket.may_recv() {
-            let data = socket
-                .recv(|buffer| {
-                    let recvd_len = buffer.len();
-                    let mut data = buffer.to_owned();
-                    if !data.is_empty() {
-                        debug!("tcp:*{:?} recv data: {:?}", local, data);
-                        data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
-                        data.reverse();
-                        data.extend(b"\n");
-                    }
-                    (recvd_len, data)
-                })
-                .unwrap();
-            if socket.can_send() && !data.is_empty() {
-                debug!("tcp:* send data: {:?}", data);
-                socket.send_slice(&data[..]).unwrap();
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
+            if !socket.is_open() {
+                // set any port can recv any tcp connection
+                socket.listen(0).unwrap()
             }
-        } else if socket.may_send() {
-            debug!("tcp:* close");
-            socket.close();
+    
+            if socket.is_active() && !tcp_any_port_active {
+                debug!("tcp:* connected");
+            } else if !socket.is_active() && tcp_any_port_active {
+                debug!("tcp:* disconnected");
+            }
+            tcp_any_port_active = socket.is_active();
+    
+            let local = socket.local_endpoint();
+            if socket.may_recv() {
+                let data = socket
+                    .recv(|buffer| {
+                        let recvd_len = buffer.len();
+                        let mut data = buffer.to_owned();
+                        if !data.is_empty() {
+                            debug!("tcp:*{:?} recv data: {:?}", local, data);
+                            data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
+                            data.reverse();
+                            data.extend(b"\n");
+                        }
+                        (recvd_len, data)
+                    })
+                    .unwrap();
+                if socket.can_send() && !data.is_empty() {
+                    debug!("tcp:* send data: {:?}", data);
+                    socket.send_slice(&data[..]).unwrap();
+                }
+            } else if socket.may_send() {
+                debug!("tcp:* close");
+                socket.close();
+            }
+            // drop(socket);
         }
 
         phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");

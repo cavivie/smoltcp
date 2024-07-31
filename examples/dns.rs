@@ -64,7 +64,7 @@ fn main() {
     let mut sockets = SocketSet::new(vec![]);
     let dns_handle = sockets.add(dns_socket);
 
-    let socket = sockets.get_mut::<dns::Socket>(dns_handle);
+    let mut socket = sockets.get_mut::<dns::Socket>(dns_handle);
     let query = socket
         .start_query(iface.context(), name, DnsQueryType::A)
         .unwrap();
@@ -73,7 +73,7 @@ fn main() {
         let timestamp = Instant::now();
         log::debug!("timestamp {:?}", timestamp);
 
-        iface.poll(timestamp, &mut device, &mut sockets);
+        iface.poll(timestamp, &mut device, &sockets);
 
         match sockets
             .get_mut::<dns::Socket>(dns_handle)

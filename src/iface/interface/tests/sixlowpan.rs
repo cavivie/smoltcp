@@ -313,7 +313,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
     let udp_socket_handle = sockets.add(udp_socket);
 
     {
-        let socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
+        let mut socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
         assert_eq!(socket.bind(6969), Ok(()));
         assert!(!socket.can_recv());
         assert!(socket.can_send());
@@ -360,7 +360,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
         None
     );
 
-    let socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
+    let mut socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
 
     let udp_data = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit. \
 In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo nec.";
@@ -412,7 +412,7 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         &mut iface.fragmenter,
     );
 
-    iface.poll(Instant::now(), &mut device, &mut sockets);
+    iface.poll(Instant::now(), &mut device, &sockets);
 
     assert_eq!(
         device.queue.pop_front().unwrap(),

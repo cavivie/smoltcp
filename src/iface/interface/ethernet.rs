@@ -3,7 +3,7 @@ use super::*;
 impl InterfaceInner {
     pub(super) fn process_ethernet<'frame, 'socket, S>(
         &mut self,
-        sockets: &mut S,
+        sockets: &S,
         meta: crate::phy::PacketMeta,
         frame: &'frame [u8],
         fragments: &'frame mut FragmentsBuffer,

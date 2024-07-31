@@ -84,7 +84,7 @@ fn any_ip(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -96,7 +96,7 @@ fn any_ip(#[case] medium: Medium) {
     assert!(iface
         .inner
         .process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         )
@@ -123,7 +123,7 @@ fn multicast_source_address(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -171,7 +171,7 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -206,7 +206,7 @@ fn hop_by_hop_discard_with_icmp(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -260,7 +260,7 @@ fn hop_by_hop_discard_param_problem(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -317,7 +317,7 @@ fn hop_by_hop_discard_with_multicast(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -376,7 +376,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -436,7 +436,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -483,7 +483,7 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -531,7 +531,7 @@ fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -580,7 +580,7 @@ fn unknown_proto(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -624,7 +624,7 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -680,7 +680,7 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -732,7 +732,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
@@ -804,7 +804,7 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
     // Ensure an Neighbor Solicitation triggers a Neighbor Advertisement
     assert_eq!(
         iface.inner.process_ethernet(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
@@ -925,7 +925,7 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_udp(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             false,
             ip_repr.into(),

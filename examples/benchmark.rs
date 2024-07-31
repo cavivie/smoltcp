@@ -13,7 +13,7 @@ use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
 
 const AMOUNT: usize = 1_000_000_000;
 
@@ -101,8 +101,23 @@ fn main() {
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
+            .expect("iface IPv4");
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64))
+            .unwrap();
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
             .unwrap();
     });
+    iface
+        .routes_mut()
+        .add_default_ipv4_route(Ipv4Address::new(192, 168, 69, 100))
+        .unwrap();
+    iface
+        .routes_mut()
+        .add_default_ipv6_route(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100))
+        .unwrap();
+    iface.set_any_ip(true);
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp1_handle = sockets.add(tcp1_socket);
@@ -113,42 +128,48 @@ fn main() {
     let mut processed = 0;
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        iface.poll(timestamp, &mut device, &mut sockets);
+        iface.poll(timestamp, &mut device, &sockets);
 
         // tcp:1234: emit data
-        let socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
-        if !socket.is_open() {
-            socket.listen(1234).unwrap();
-        }
-
-        if socket.can_send() {
-            if processed < AMOUNT {
-                let length = socket
-                    .send(|buffer| {
-                        let length = cmp::min(buffer.len(), AMOUNT - processed);
-                        (length, length)
-                    })
-                    .unwrap();
-                processed += length;
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
+            if !socket.is_open() {
+                socket.listen(1234).unwrap();
             }
+
+            if socket.can_send() {
+                if processed < AMOUNT {
+                    let length = socket
+                        .send(|buffer| {
+                            let length = cmp::min(buffer.len(), AMOUNT - processed);
+                            (length, length)
+                        })
+                        .unwrap();
+                    processed += length;
+                }
+            }
+            // drop(socket);
         }
 
         // tcp:1235: sink data
-        let socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
-        if !socket.is_open() {
-            socket.listen(1235).unwrap();
-        }
-
-        if socket.can_recv() {
-            if processed < AMOUNT {
-                let length = socket
-                    .recv(|buffer| {
-                        let length = cmp::min(buffer.len(), AMOUNT - processed);
-                        (length, length)
-                    })
-                    .unwrap();
-                processed += length;
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
+            if !socket.is_open() {
+                socket.listen(1235).unwrap();
             }
+
+            if socket.can_recv() {
+                if processed < AMOUNT {
+                    let length = socket
+                        .recv(|buffer| {
+                            let length = cmp::min(buffer.len(), AMOUNT - processed);
+                            (length, length)
+                        })
+                        .unwrap();
+                    processed += length;
+                }
+            }
+            // drop(socket);
         }
 
         match iface.poll_at(timestamp, &sockets) {

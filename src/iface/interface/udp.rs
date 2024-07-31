@@ -9,7 +9,7 @@ use crate::socket::udp::Socket as UdpSocket;
 impl InterfaceInner {
     pub(super) fn process_udp<'frame, 'socket, S>(
         &mut self,
-        sockets: &mut S,
+        sockets: &S,
         meta: PacketMeta,
         handled_by_raw_socket: bool,
         ip_repr: IpRepr,
@@ -28,25 +28,27 @@ impl InterfaceInner {
         ));
 
         #[cfg(feature = "socket-udp")]
-        for udp_socket in sockets
-            .filter_mut(SocketKind::Udp)
-            .filter_map(|i| UdpSocket::downcast_mut(&mut i.socket))
-        {
-            if udp_socket.accepts(self, &ip_repr, &udp_repr) {
-                udp_socket.process(self, meta, &ip_repr, &udp_repr, udp_packet.payload());
-                return None;
-            }
+        // Find the first udp socket that accepts this UDP packet and process it.
+        if let Some(mut udp_socket) = sockets.filter(SocketKind::Udp).find_map(|socket| {
+            socket
+                .downcast_with::<UdpSocket>(|udp_socket| {
+                    udp_socket.accepts(self, &ip_repr, &udp_repr)
+                })
+                .write()
+        }) {
+            udp_socket.process(self, meta, &ip_repr, &udp_repr, udp_packet.payload());
+            return None;
         }
 
         #[cfg(feature = "socket-dns")]
-        for dns_socket in sockets
-            .filter_mut(SocketKind::Dns)
-            .filter_map(|i| DnsSocket::downcast_mut(&mut i.socket))
-        {
-            if dns_socket.accepts(&ip_repr, &udp_repr) {
-                dns_socket.process(self, &ip_repr, &udp_repr, udp_packet.payload());
-                return None;
-            }
+        // Find the first dns socket that accepts this UDP packet and process it.
+        if let Some(mut dns_socket) = sockets.filter(SocketKind::Udp).find_map(|socket| {
+            socket
+                .downcast_with::<DnsSocket>(|dns_socket| dns_socket.accepts(&ip_repr, &udp_repr))
+                .write()
+        }) {
+            dns_socket.process(self, &ip_repr, &udp_repr, udp_packet.payload());
+            return None;
         }
 
         // The packet wasn't handled by a socket, send an ICMP port unreachable packet.

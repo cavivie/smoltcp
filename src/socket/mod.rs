@@ -64,11 +64,17 @@ pub enum SocketKind {
 impl<'a> Socket<'a> {
     pub fn kind(&self) -> SocketKind {
         match self {
+            #[cfg(feature = "socket-raw")]
             Socket::Raw(_) => SocketKind::Raw,
+            #[cfg(feature = "socket-icmp")]
             Socket::Icmp(_) => SocketKind::Icmp,
+            #[cfg(feature = "socket-udp")]
             Socket::Udp(_) => SocketKind::Udp,
+            #[cfg(feature = "socket-tcp")]
             Socket::Tcp(_) => SocketKind::Tcp,
+            #[cfg(feature = "socket-dhcpv4")]
             Socket::Dhcpv4(_) => SocketKind::Dhcpv4,
+            #[cfg(feature = "socket-dns")]
             Socket::Dns(_) => SocketKind::Dns,
         }
     }

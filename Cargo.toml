@@ -25,6 +25,7 @@ bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.3", optional = true }
 cfg-if = "1.0.0"
 heapless = "0.8"
+spin = { path = "../spin-rs", default-features = false, features = ["rwlock", "lock_api"] }
 
 [dev-dependencies]
 env_logger = "0.10"
@@ -90,6 +91,9 @@ defmt = ["dep:defmt", "heapless/defmt-03"]
 
 "async" = []
 
+"single-thread" = []
+"multi-thread" = []
+
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "medium-ethernet", "medium-ip", "medium-ieee802154",
@@ -97,7 +101,7 @@ default = [
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
-  "packetmeta-id", "async"
+  "packetmeta-id", "async", "multi-thread"
 ]
 
 # Private features

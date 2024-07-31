@@ -71,18 +71,20 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        iface.poll(timestamp, &mut device, &mut sockets);
+        iface.poll(timestamp, &mut device, &sockets);
 
-        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
-        if !socket.is_open() {
-            socket.bind(PORT).unwrap()
-        }
-
-        if socket.can_recv() {
-            socket
-                .recv()
-                .map(|(data, sender)| println!("traffic: {} UDP bytes from {}", data.len(), sender))
-                .unwrap_or_else(|e| println!("Recv UDP error: {:?}", e));
+        {
+            let mut socket = sockets.get_mut::<udp::Socket>(udp_handle);
+            if !socket.is_open() {
+                socket.bind(PORT).unwrap()
+            }
+            if socket.can_recv() {
+                socket
+                    .recv()
+                    .map(|(data, sender)| println!("traffic: {} UDP bytes from {}", data.len(), sender))
+                    .unwrap_or_else(|e| println!("Recv UDP error: {:?}", e));
+            }
+            // drop(socket);
         }
 
         phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");

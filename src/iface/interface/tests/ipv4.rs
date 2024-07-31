@@ -37,7 +37,7 @@ fn test_any_ip_accept_arp(#[case] medium: Medium) {
     assert!(iface
         .inner
         .process_ethernet(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             ETHERNET_FRAME_ARP(buffer.as_mut()),
             &mut iface.fragments,
@@ -50,7 +50,7 @@ fn test_any_ip_accept_arp(#[case] medium: Medium) {
     assert!(iface
         .inner
         .process_ethernet(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             ETHERNET_FRAME_ARP(buffer.as_mut()),
             &mut iface.fragments,
@@ -89,7 +89,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv4(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &frame,
             &mut iface.fragments
@@ -150,7 +150,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv4(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &frame,
             &mut iface.fragments
@@ -296,7 +296,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     assert_eq!(
         iface
             .inner
-            .process_udp(&mut sockets, PacketMeta::default(), false, ip_repr, data),
+            .process_udp(&sockets, PacketMeta::default(), false, ip_repr, data),
         Some(expected_repr)
     );
 
@@ -323,7 +323,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     // broadcast address and no socket is bound to the port.
     assert_eq!(
         iface.inner.process_udp(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             false,
             ip_repr,
@@ -395,7 +395,7 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv4(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &frame,
             &mut iface.fragments
@@ -435,7 +435,7 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
     // Ensure an ARP Request for us triggers an ARP Reply
     assert_eq!(
         iface.inner.process_ethernet(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
@@ -490,7 +490,7 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
     // Ensure an ARP Request for someone else does not trigger an ARP Reply
     assert_eq!(
         iface.inner.process_ethernet(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
@@ -543,7 +543,7 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
     // Ensure an ARP Request for us triggers an ARP Reply
     assert_eq!(
         iface.inner.process_ethernet(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
@@ -601,7 +601,7 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
     let seq_no = 0x5432;
     let echo_data = &[0xff; 16];
 
-    let socket = sockets.get_mut::<icmp::Socket>(socket_handle);
+    let mut socket = sockets.get_mut::<icmp::Socket>(socket_handle);
     // Bind to the ID 0x1234
     assert_eq!(socket.bind(icmp::Endpoint::Ident(ident)), Ok(()));
 
@@ -640,13 +640,11 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         ..ipv4_repr
     };
     assert_eq!(
-        iface
-            .inner
-            .process_icmpv4(&mut sockets, ipv4_repr, icmp_data),
+        iface.inner.process_icmpv4(&sockets, ipv4_repr, icmp_data),
         Some(Packet::new_ipv4(ipv4_reply, IpPayload::Icmpv4(echo_reply)))
     );
 
-    let socket = sockets.get_mut::<icmp::Socket>(socket_handle);
+    let mut socket = sockets.get_mut::<icmp::Socket>(socket_handle);
     assert!(socket.can_recv());
     assert_eq!(
         socket.recv(),
@@ -740,7 +738,7 @@ fn test_handle_igmp(#[case] medium: Medium) {
     // loopback have been processed, including responses to
     // GENERAL_QUERY_BYTES. Therefore `recv_all()` would return 0
     // pkts that could be checked.
-    iface.socket_ingress(&mut device, &mut sockets);
+    iface.socket_ingress(&mut device, &sockets);
 
     // Leave multicast groups
     let timestamp = Instant::ZERO;
@@ -826,7 +824,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv4(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &frame,
             &mut iface.fragments
@@ -858,10 +856,11 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     let udp_socket_handle = sockets.add(udp_socket);
 
     // Bind the socket to port 68
-    let socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
+    let mut socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
     assert_eq!(socket.bind(68), Ok(()));
     assert!(!socket.can_recv());
     assert!(socket.can_send());
+    drop(socket);
 
     let packets = 1;
     let raw_rx_buffer =
@@ -923,7 +922,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv4(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             &frame,
             &mut iface.fragments
@@ -932,7 +931,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     );
 
     // Make sure the UDP socket can still receive in presence of a Raw socket that handles UDP
-    let socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
+    let mut socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
     assert!(socket.can_recv());
     assert_eq!(
         socket.recv(),
@@ -1007,7 +1006,7 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_udp(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             false,
             ip_repr.into(),

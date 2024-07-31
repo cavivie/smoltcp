@@ -91,7 +91,7 @@ impl InterfaceInner {
 
     pub(super) fn process_ipv4<'packet, 'socket, S>(
         &mut self,
-        sockets: &mut S,
+        sockets: &S,
         meta: PacketMeta,
         ipv4_packet: &Ipv4Packet<&'packet [u8]>,
         frag: &'packet mut FragmentsBuffer,
@@ -162,24 +162,31 @@ impl InterfaceInner {
                 && matches!(self.caps.medium, Medium::Ethernet)
             {
                 let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-                if let Some(dhcp_socket) = sockets
-                    .filter_mut(SocketKind::Dhcpv4)
-                    .find_map(|i| Dhcpv4Socket::downcast_mut(&mut i.socket))
+
+                // For the first DHCP socket if its address matches then process it.
+                if let Some(mut dhcp_socket) = sockets
+                    .filter(SocketKind::Dhcpv4)
+                    .next()
+                    .map(|socket| {
+                        socket
+                            .downcast_with::<Dhcpv4Socket>(|dhcp_socket| {
+                                // First check for source and dest ports, then do `UdpRepr::parse` if they match.
+                                // This way we avoid validating the UDP checksum twice for all non-DHCP UDP packets (one here, one in `process_udp`)
+                                udp_packet.src_port() == dhcp_socket.server_port
+                                    && udp_packet.dst_port() == dhcp_socket.client_port
+                            })
+                            .write()
+                    })
+                    .flatten()
                 {
-                    // First check for source and dest ports, then do `UdpRepr::parse` if they match.
-                    // This way we avoid validating the UDP checksum twice for all non-DHCP UDP packets (one here, one in `process_udp`)
-                    if udp_packet.src_port() == dhcp_socket.server_port
-                        && udp_packet.dst_port() == dhcp_socket.client_port
-                    {
-                        let udp_repr = check!(UdpRepr::parse(
-                            &udp_packet,
-                            &ipv4_repr.src_addr.into(),
-                            &ipv4_repr.dst_addr.into(),
-                            &self.caps.checksum
-                        ));
-                        dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_packet.payload());
-                        return None;
-                    }
+                    let udp_repr = check!(UdpRepr::parse(
+                        &udp_packet,
+                        &ipv4_repr.src_addr.into(),
+                        &ipv4_repr.dst_addr.into(),
+                        &self.caps.checksum
+                    ));
+                    dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_packet.payload());
+                    return None;
                 }
             }
         }
@@ -299,7 +306,7 @@ impl InterfaceInner {
 
     pub(super) fn process_icmpv4<'frame, 'socket, S>(
         &mut self,
-        _sockets: &mut S,
+        _sockets: &S,
         ip_repr: Ipv4Repr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>>
@@ -313,11 +320,14 @@ impl InterfaceInner {
         let mut handled_by_icmp_socket = false;
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
-        for icmp_socket in _sockets
-            .filter_mut(SocketKind::Icmp)
-            .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
-        {
-            if icmp_socket.accepts_v4(self, &ip_repr, &icmp_repr) {
+        // For each icmp socket that accepts this IP packet then process it.
+        for socket in _sockets.filter(SocketKind::Icmp) {
+            if let Some(mut icmp_socket) = socket
+                .downcast_with::<icmp::Socket>(|icmp_socket| {
+                    icmp_socket.accepts_v4(self, &ip_repr, &icmp_repr)
+                })
+                .write()
+            {
                 icmp_socket.process_v4(self, &ip_repr, &icmp_repr);
                 handled_by_icmp_socket = true;
             }

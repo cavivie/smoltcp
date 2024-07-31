@@ -86,67 +86,70 @@ fn main() {
     let mut tcp_any_port_active = false;
     loop {
         let timestamp = Instant::now();
-        iface.poll(timestamp, &mut device, &mut sockets);
+        iface.poll(timestamp, &mut device, &sockets);
 
         let cur_tcp_handle = tcp_handle;
 
         // tcp:*: echo with reverse
-        let socket = sockets.get_mut::<tcp::Socket>(cur_tcp_handle);
-        if !socket.is_open() {
-            // set any port can recv any tcp connection
-            socket.listen(0).unwrap();
-        }
-
-        if socket.is_active() && !tcp_any_port_active {
-            debug!("tcp:* connected");
-            match (
-                socket.state(),
-                socket.local_endpoint(),
-                socket.remote_endpoint(),
-            ) {
-                (tcp::State::SynReceived, Some(local), Some(remote))
-                    if !socks_map.contains_key(&(local, remote)) =>
-                {
-                    debug!("tcp recv 4-tuple {:?}", (local, remote));
-                    // Create sockets
-                    let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
-                    let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
-                    let mut tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
-                    tcp_socket.set_any_port(true);
-
-                    tcp_handle = sockets.add(tcp_socket);
-                    socks_map.insert((local, remote), tcp_handle);
-                }
-                _ => unreachable!()
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(cur_tcp_handle);
+            if !socket.is_open() {
+                // set any port can recv any tcp connection
+                socket.listen(0).unwrap();
             }
-        } else if !socket.is_active() && tcp_any_port_active {
-            debug!("tcp:* disconnected");
-        }
-        let socket = sockets.get_mut::<tcp::Socket>(cur_tcp_handle);
-        tcp_any_port_active = socket.is_active();
-
-        let local = socket.local_endpoint();
-        if socket.may_recv() {
-            let data = socket
-                .recv(|buffer| {
-                    let recvd_len = buffer.len();
-                    let mut data = buffer.to_owned();
-                    if !data.is_empty() {
-                        debug!("tcp:*{:?} recv data: {:?}", local, data);
-                        data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
-                        data.reverse();
-                        data.extend(b"\n");
+    
+            if socket.is_active() && !tcp_any_port_active {
+                debug!("tcp:* connected");
+                match (
+                    socket.state(),
+                    socket.local_endpoint(),
+                    socket.remote_endpoint(),
+                ) {
+                    (tcp::State::SynReceived, Some(local), Some(remote))
+                        if !socks_map.contains_key(&(local, remote)) =>
+                    {
+                        debug!("tcp recv 4-tuple {:?}", (local, remote));
+                        // Create sockets
+                        let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
+                        let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
+                        let mut tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
+                        tcp_socket.set_any_port(true);
+                        drop(socket);
+                        tcp_handle = sockets.add(tcp_socket);
+                        socks_map.insert((local, remote), tcp_handle);
                     }
-                    (recvd_len, data)
-                })
-                .unwrap();
-            if socket.can_send() && !data.is_empty() {
-                debug!("tcp:* send data: {:?}", data);
-                socket.send_slice(&data[..]).unwrap();
+                    _ => unreachable!(),
+                }
+            } else if !socket.is_active() && tcp_any_port_active {
+                debug!("tcp:* disconnected");
             }
-        } else if socket.may_send() {
-            debug!("tcp:* close");
-            socket.close();
+            let mut socket = sockets.get_mut::<tcp::Socket>(cur_tcp_handle);
+            tcp_any_port_active = socket.is_active();
+    
+            let local = socket.local_endpoint();
+            if socket.may_recv() {
+                let data = socket
+                    .recv(|buffer| {
+                        let recvd_len = buffer.len();
+                        let mut data = buffer.to_owned();
+                        if !data.is_empty() {
+                            debug!("tcp:*{:?} recv data: {:?}", local, data);
+                            data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
+                            data.reverse();
+                            data.extend(b"\n");
+                        }
+                        (recvd_len, data)
+                    })
+                    .unwrap();
+                if socket.can_send() && !data.is_empty() {
+                    debug!("tcp:* send data: {:?}", data);
+                    socket.send_slice(&data[..]).unwrap();
+                }
+            } else if socket.may_send() {
+                debug!("tcp:* close");
+                socket.close();
+            }
+            // drop(socket);
         }
 
         phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");

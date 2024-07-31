@@ -188,38 +188,44 @@ fn main() {
 
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        iface.poll(timestamp, &mut device, &mut sockets);
+        iface.poll(timestamp, &mut device, &sockets);
 
         // tcp:1234: emit data
-        let socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
-        if !socket.is_open() {
-            socket.listen(1234).unwrap();
-        }
-
-        if socket.can_send() && processed < AMOUNT {
-            let length = socket
-                .send(|buffer| {
-                    let length = cmp::min(buffer.len(), AMOUNT - processed);
-                    (length, length)
-                })
-                .unwrap();
-            processed += length;
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
+            if !socket.is_open() {
+                socket.listen(1234).unwrap();
+            }
+    
+            if socket.can_send() && processed < AMOUNT {
+                let length = socket
+                    .send(|buffer| {
+                        let length = cmp::min(buffer.len(), AMOUNT - processed);
+                        (length, length)
+                    })
+                    .unwrap();
+                processed += length;
+            }
+            // drop(socket);
         }
 
         // tcp:1235: sink data
-        let socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
-        if !socket.is_open() {
-            socket.listen(1235).unwrap();
-        }
-
-        if socket.can_recv() && processed < AMOUNT {
-            let length = socket
-                .recv(|buffer| {
-                    let length = cmp::min(buffer.len(), AMOUNT - processed);
-                    (length, length)
-                })
-                .unwrap();
-            processed += length;
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
+            if !socket.is_open() {
+                socket.listen(1235).unwrap();
+            }
+    
+            if socket.can_recv() && processed < AMOUNT {
+                let length = socket
+                    .recv(|buffer| {
+                        let length = cmp::min(buffer.len(), AMOUNT - processed);
+                        (length, length)
+                    })
+                    .unwrap();
+                processed += length;
+            }
+            // drop(socket);
         }
 
         match iface.poll_at(timestamp, &sockets) {

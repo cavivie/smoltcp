@@ -52,34 +52,38 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        iface.poll(timestamp, &mut device, &mut sockets);
+        iface.poll(timestamp, &mut device, &sockets);
 
-        let event = sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).poll();
-        match event {
-            None => {}
-            Some(dhcpv4::Event::Configured(config)) => {
-                debug!("DHCP config acquired!");
-
-                debug!("IP address:      {}", config.address);
-                set_ipv4_addr(&mut iface, config.address);
-
-                if let Some(router) = config.router {
-                    debug!("Default gateway: {}", router);
-                    iface.routes_mut().add_default_ipv4_route(router).unwrap();
-                } else {
-                    debug!("Default gateway: None");
+        {
+            let mut socket = sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
+            let event = socket.poll();
+            match event {
+                None => {}
+                Some(dhcpv4::Event::Configured(config)) => {
+                    debug!("DHCP config acquired!");
+    
+                    debug!("IP address:      {}", config.address);
+                    set_ipv4_addr(&mut iface, config.address);
+    
+                    if let Some(router) = config.router {
+                        debug!("Default gateway: {}", router);
+                        iface.routes_mut().add_default_ipv4_route(router).unwrap();
+                    } else {
+                        debug!("Default gateway: None");
+                        iface.routes_mut().remove_default_ipv4_route();
+                    }
+    
+                    for (i, s) in config.dns_servers.iter().enumerate() {
+                        debug!("DNS server {}:    {}", i, s);
+                    }
+                }
+                Some(dhcpv4::Event::Deconfigured) => {
+                    debug!("DHCP lost config!");
+                    iface.update_ip_addrs(|addrs| addrs.clear());
                     iface.routes_mut().remove_default_ipv4_route();
                 }
-
-                for (i, s) in config.dns_servers.iter().enumerate() {
-                    debug!("DNS server {}:    {}", i, s);
-                }
             }
-            Some(dhcpv4::Event::Deconfigured) => {
-                debug!("DHCP lost config!");
-                iface.update_ip_addrs(|addrs| addrs.clear());
-                iface.routes_mut().remove_default_ipv4_route();
-            }
+            // drop(socket);
         }
 
         phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");

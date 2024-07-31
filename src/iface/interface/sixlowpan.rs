@@ -60,7 +60,7 @@ impl InterfaceInner {
 
     pub(super) fn process_sixlowpan<'output, 'payload: 'output, 'socket, S>(
         &mut self,
-        sockets: &mut S,
+        sockets: &S,
         meta: PacketMeta,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload [u8],

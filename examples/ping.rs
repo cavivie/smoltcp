@@ -151,92 +151,96 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        iface.poll(timestamp, &mut device, &mut sockets);
+        iface.poll(timestamp, &mut device, &sockets);
 
         let timestamp = Instant::now();
-        let socket = sockets.get_mut::<icmp::Socket>(icmp_handle);
-        if !socket.is_open() {
-            socket.bind(icmp::Endpoint::Ident(ident)).unwrap();
-            send_at = timestamp;
-        }
 
-        if socket.can_send() && seq_no < count as u16 && send_at <= timestamp {
-            NetworkEndian::write_i64(&mut echo_payload, timestamp.total_millis());
-
-            match remote_addr {
-                IpAddress::Ipv4(_) => {
-                    let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
-                        Icmpv4Repr,
-                        Icmpv4Packet,
-                        ident,
-                        seq_no,
-                        echo_payload,
-                        socket,
-                        remote_addr
-                    );
-                    icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
+        {
+            let mut socket = sockets.get_mut::<icmp::Socket>(icmp_handle);
+            if !socket.is_open() {
+                socket.bind(icmp::Endpoint::Ident(ident)).unwrap();
+                send_at = timestamp;
+            }
+    
+            if socket.can_send() && seq_no < count as u16 && send_at <= timestamp {
+                NetworkEndian::write_i64(&mut echo_payload, timestamp.total_millis());
+    
+                match remote_addr {
+                    IpAddress::Ipv4(_) => {
+                        let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
+                            Icmpv4Repr,
+                            Icmpv4Packet,
+                            ident,
+                            seq_no,
+                            echo_payload,
+                            socket,
+                            remote_addr
+                        );
+                        icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
+                    }
+                    IpAddress::Ipv6(address) => {
+                        let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
+                            Icmpv6Repr,
+                            Icmpv6Packet,
+                            ident,
+                            seq_no,
+                            echo_payload,
+                            socket,
+                            remote_addr
+                        );
+                        icmp_repr.emit(
+                            &iface.get_source_address_ipv6(&address),
+                            &address,
+                            &mut icmp_packet,
+                            &device_caps.checksum,
+                        );
+                    }
                 }
-                IpAddress::Ipv6(address) => {
-                    let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
-                        Icmpv6Repr,
-                        Icmpv6Packet,
-                        ident,
-                        seq_no,
-                        echo_payload,
-                        socket,
-                        remote_addr
-                    );
-                    icmp_repr.emit(
-                        &iface.get_source_address_ipv6(&address),
-                        &address,
-                        &mut icmp_packet,
-                        &device_caps.checksum,
-                    );
+    
+                waiting_queue.insert(seq_no, timestamp);
+                seq_no += 1;
+                send_at += interval;
+            }
+    
+            if socket.can_recv() {
+                let (payload, _) = socket.recv().unwrap();
+    
+                match remote_addr {
+                    IpAddress::Ipv4(_) => {
+                        let icmp_packet = Icmpv4Packet::new_checked(&payload).unwrap();
+                        let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
+                        get_icmp_pong!(
+                            Icmpv4Repr,
+                            icmp_repr,
+                            payload,
+                            waiting_queue,
+                            remote_addr,
+                            timestamp,
+                            received
+                        );
+                    }
+                    IpAddress::Ipv6(address) => {
+                        let icmp_packet = Icmpv6Packet::new_checked(&payload).unwrap();
+                        let icmp_repr = Icmpv6Repr::parse(
+                            &address,
+                            &iface.get_source_address_ipv6(&address),
+                            &icmp_packet,
+                            &device_caps.checksum,
+                        )
+                        .unwrap();
+                        get_icmp_pong!(
+                            Icmpv6Repr,
+                            icmp_repr,
+                            payload,
+                            waiting_queue,
+                            remote_addr,
+                            timestamp,
+                            received
+                        );
+                    }
                 }
             }
-
-            waiting_queue.insert(seq_no, timestamp);
-            seq_no += 1;
-            send_at += interval;
-        }
-
-        if socket.can_recv() {
-            let (payload, _) = socket.recv().unwrap();
-
-            match remote_addr {
-                IpAddress::Ipv4(_) => {
-                    let icmp_packet = Icmpv4Packet::new_checked(&payload).unwrap();
-                    let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
-                    get_icmp_pong!(
-                        Icmpv4Repr,
-                        icmp_repr,
-                        payload,
-                        waiting_queue,
-                        remote_addr,
-                        timestamp,
-                        received
-                    );
-                }
-                IpAddress::Ipv6(address) => {
-                    let icmp_packet = Icmpv6Packet::new_checked(&payload).unwrap();
-                    let icmp_repr = Icmpv6Repr::parse(
-                        &address,
-                        &iface.get_source_address_ipv6(&address),
-                        &icmp_packet,
-                        &device_caps.checksum,
-                    )
-                    .unwrap();
-                    get_icmp_pong!(
-                        Icmpv6Repr,
-                        icmp_repr,
-                        payload,
-                        waiting_queue,
-                        remote_addr,
-                        timestamp,
-                        received
-                    );
-                }
-            }
+            // drop(socket);
         }
 
         waiting_queue.retain(|seq, from| {

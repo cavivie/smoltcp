@@ -102,74 +102,80 @@ fn main() {
     let udp_handle = sockets.add(udp_socket);
     let tcp_handle = sockets.add(tcp_socket);
 
-    let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+    let mut socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
     socket.listen(50000).unwrap();
 
     let mut tcp_active = false;
 
     loop {
         let timestamp = Instant::now();
-        iface.poll(timestamp, &mut device, &mut sockets);
+        iface.poll(timestamp, &mut device, &sockets);
 
         // udp:6969: respond "hello"
-        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
-        if !socket.is_open() {
-            socket.bind(6969).unwrap()
-        }
-
-        let mut buffer = vec![0; 1500];
-        let client = match socket.recv() {
-            Ok((data, endpoint)) => {
-                debug!(
-                    "udp:6969 recv data: {:?} from {}",
-                    str::from_utf8(data).unwrap(),
-                    endpoint
-                );
-                buffer[..data.len()].copy_from_slice(data);
-                Some((data.len(), endpoint))
+        {
+            let mut socket = sockets.get_mut::<udp::Socket>(udp_handle);
+            if !socket.is_open() {
+                socket.bind(6969).unwrap()
             }
-            Err(_) => None,
-        };
-        if let Some((len, endpoint)) = client {
-            debug!(
-                "udp:6969 send data: {:?}",
-                str::from_utf8(&buffer[..len]).unwrap()
-            );
-            socket.send_slice(&buffer[..len], endpoint).unwrap();
-        }
-
-        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
-        if socket.is_active() && !tcp_active {
-            debug!("connected");
-        } else if !socket.is_active() && tcp_active {
-            debug!("disconnected");
-        }
-        tcp_active = socket.is_active();
-
-        if socket.may_recv() {
-            let data = socket
-                .recv(|data| {
-                    let data = data.to_owned();
-                    if !data.is_empty() {
-                        debug!(
-                            "recv data: {:?}",
-                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
-                        );
-                    }
-                    (data.len(), data)
-                })
-                .unwrap();
-
-            if socket.can_send() && !data.is_empty() {
+    
+            let mut buffer = vec![0; 1500];
+            let client = match socket.recv() {
+                Ok((data, endpoint)) => {
+                    debug!(
+                        "udp:6969 recv data: {:?} from {}",
+                        str::from_utf8(data).unwrap(),
+                        endpoint
+                    );
+                    buffer[..data.len()].copy_from_slice(data);
+                    Some((data.len(), endpoint))
+                }
+                Err(_) => None,
+            };
+            if let Some((len, endpoint)) = client {
                 debug!(
-                    "send data: {:?}",
-                    str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                    "udp:6969 send data: {:?}",
+                    str::from_utf8(&buffer[..len]).unwrap()
                 );
-                socket.send_slice(&data[..]).unwrap();
+                socket.send_slice(&buffer[..len], endpoint).unwrap();
             }
-        } else if socket.may_send() {
-            debug!("close");
-            socket.close();
+            // drop(socket);
+        }
+
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+            if socket.is_active() && !tcp_active {
+                debug!("connected");
+            } else if !socket.is_active() && tcp_active {
+                debug!("disconnected");
+            }
+            tcp_active = socket.is_active();
+    
+            if socket.may_recv() {
+                let data = socket
+                    .recv(|data| {
+                        let data = data.to_owned();
+                        if !data.is_empty() {
+                            debug!(
+                                "recv data: {:?}",
+                                str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                            );
+                        }
+                        (data.len(), data)
+                    })
+                    .unwrap();
+    
+                if socket.can_send() && !data.is_empty() {
+                    debug!(
+                        "send data: {:?}",
+                        str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                    );
+                    socket.send_slice(&data[..]).unwrap();
+                }
+            } else if socket.may_send() {
+                debug!("close");
+                socket.close();
+            }
+            // drop(socket);
         }
 
         phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
