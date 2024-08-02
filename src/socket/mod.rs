@@ -134,6 +134,7 @@ pub trait AnySocket<'a> {
     fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>
     where
         Self: Sized;
+    fn kind() -> SocketKind;
 }
 
 macro_rules! from_socket {
@@ -157,6 +158,10 @@ macro_rules! from_socket {
                     Socket::$variant(socket) => Some(socket),
                     _ => None,
                 }
+            }
+
+            fn kind() -> SocketKind {
+                SocketKind::$variant
             }
         }
     };

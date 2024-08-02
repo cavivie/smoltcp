@@ -1,7 +1,6 @@
 use super::socket_meta::Meta;
 use crate::socket::{AnySocket, Socket, SocketKind};
 
-// pub use self::impl_rwlock_api::*;
 pub use spin::lock_api::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard,
     RwLockUpgradableReadGuard, RwLockWriteGuard,
@@ -112,6 +111,18 @@ impl SocketHandle {
     #[inline]
     pub fn handle_id(&self) -> usize {
         self.0
+    }
+}
+
+impl From<usize> for SocketHandle {
+    fn from(handle_id: usize) -> Self {
+        Self(handle_id)
+    }
+}
+
+impl core::fmt::Display for SocketHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "#{}", self.0)
     }
 }
 
@@ -290,12 +301,6 @@ impl<'a> core::fmt::Debug for SocketStorage<'a> {
     }
 }
 
-impl core::fmt::Display for SocketHandle {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "#{}", self.0)
-    }
-}
-
 pub trait AnySocketSet<'a> {
     /// Returns an iterator over the items in the socket set, immutable version..
     fn items<'s>(&'s self) -> impl Iterator<Item = &'s SocketStorage<'a>>
@@ -400,7 +405,7 @@ mod impl_socket_set {
         /// # Panics
         /// This function may panic if the handle does not belong to this socket set.
         pub fn remove(&mut self, handle: SocketHandle) -> Socket<'a> {
-            net_trace!("[{}]: removing", handle.0);
+            net_trace!("[{}]: removing", handle.handle_id());
             self.sockets
                 .remove(handle.handle_id())
                 .map(|item| item.socket())
@@ -436,403 +441,6 @@ mod impl_socket_set {
             self.sockets
                 .iter()
                 .filter(move |i| i.socket_ref().kind() == kind)
-        }
-    }
-}
-
-/// An implementation for `read/write sync lock`.
-mod impl_rwlock_api {
-    // Type alias can simplify the code, but it will expose more internal details.
-    // We only need to expose the public methods specific to guard and lock impl.
-
-    #[cfg(feature = "single-thread")]
-    mod single_thread {
-        pub(super) struct RwLockImpl<T> {
-            inner: core::cell::RefCell<T>,
-        }
-
-        impl<T> RwLockImpl<T> {
-            pub(super) fn new(value: T) -> Self {
-                Self {
-                    inner: core::cell::RefCell::new(value),
-                }
-            }
-
-            pub(super) fn into_inner(self) -> T {
-                self.inner.into_inner()
-            }
-
-            pub(super) fn read<'a>(&'a self) -> RwLockReadGuard<'a, T> {
-                self.inner.borrow().into()
-            }
-
-            pub(super) fn read_map<'a, U: ?Sized, F>(&'a self, f: F) -> MappedRwLockReadGuard<'a, U>
-            where
-                F: FnOnce(&T) -> &U,
-            {
-                self.read().map(f)
-            }
-
-            pub(super) fn write<'a>(&'a self) -> RwLockWriteGuard<'a, T> {
-                self.inner.borrow_mut().into()
-            }
-
-            pub(super) fn write_map<'a, U: ?Sized, F>(
-                &'a self,
-                f: F,
-            ) -> MappedRwLockWriteGuard<'a, U>
-            where
-                F: FnOnce(&mut T) -> &mut U,
-            {
-                self.write().map(f)
-            }
-        }
-
-        impl<T: core::fmt::Debug> core::fmt::Debug for RwLockImpl<T> {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                self.inner.fmt(f)
-            }
-        }
-
-        pub struct RwLockReadGuard<'a, T> {
-            inner: core::cell::Ref<'a, T>,
-        }
-
-        impl<'a, T> RwLockReadGuard<'a, T> {
-            fn map<U: ?Sized, F>(self, f: F) -> MappedRwLockReadGuard<'a, U>
-            where
-                F: FnOnce(&T) -> &U,
-            {
-                MappedRwLockReadGuard {
-                    inner: core::cell::Ref::map(self.inner, f),
-                }
-            }
-        }
-
-        impl<'a, T> From<core::cell::Ref<'a, T>> for RwLockReadGuard<'a, T> {
-            fn from(value: core::cell::Ref<'a, T>) -> Self {
-                Self { inner: value }
-            }
-        }
-
-        impl<'a, T> core::ops::Deref for RwLockReadGuard<'a, T> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                self.inner.deref()
-            }
-        }
-
-        pub struct RwLockWriteGuard<'a, T> {
-            inner: core::cell::RefMut<'a, T>,
-        }
-
-        impl<'a, T> RwLockWriteGuard<'a, T> {
-            fn map<U: ?Sized, F>(self, f: F) -> MappedRwLockWriteGuard<'a, U>
-            where
-                F: FnOnce(&mut T) -> &mut U,
-            {
-                MappedRwLockWriteGuard {
-                    inner: core::cell::RefMut::map(self.inner, f),
-                }
-            }
-        }
-
-        impl<'a, T> From<core::cell::RefMut<'a, T>> for RwLockWriteGuard<'a, T> {
-            fn from(value: core::cell::RefMut<'a, T>) -> Self {
-                Self { inner: value }
-            }
-        }
-
-        impl<'a, T> core::ops::Deref for RwLockWriteGuard<'a, T> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                self.inner.deref()
-            }
-        }
-
-        impl<'a, T> core::ops::DerefMut for RwLockWriteGuard<'a, T> {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                self.inner.deref_mut()
-            }
-        }
-
-        pub struct MappedRwLockReadGuard<'a, T: ?Sized + 'a> {
-            inner: core::cell::Ref<'a, T>,
-        }
-
-        impl<'a, T: ?Sized> MappedRwLockReadGuard<'a, T> {
-            #[inline]
-            pub fn map<U: ?Sized, F>(self, f: F) -> MappedRwLockReadGuard<'a, U>
-            where
-                F: FnOnce(&T) -> &U,
-            {
-                MappedRwLockReadGuard {
-                    inner: core::cell::Ref::map(self.inner, f),
-                }
-            }
-        }
-
-        impl<'a, T> core::ops::Deref for MappedRwLockReadGuard<'a, T> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                self.inner.deref()
-            }
-        }
-
-        pub struct MappedRwLockWriteGuard<'a, T: ?Sized + 'a> {
-            inner: core::cell::RefMut<'a, T>,
-        }
-
-        impl<'a, T: ?Sized> MappedRwLockWriteGuard<'a, T> {
-            #[inline]
-            pub fn map<U: ?Sized, F>(self, f: F) -> MappedRwLockWriteGuard<'a, U>
-            where
-                F: FnOnce(&mut T) -> &mut U,
-            {
-                MappedRwLockWriteGuard {
-                    inner: core::cell::RefMut::map(self.inner, f),
-                }
-            }
-        }
-
-        impl<'a, T> core::ops::Deref for MappedRwLockWriteGuard<'a, T> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                self.inner.deref()
-            }
-        }
-
-        impl<'a, T> core::ops::DerefMut for MappedRwLockWriteGuard<'a, T> {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                self.inner.deref_mut()
-            }
-        }
-    }
-    #[cfg(feature = "single-thread")]
-    use single_thread::RwLockImpl;
-    #[cfg(feature = "single-thread")]
-    pub use single_thread::{
-        MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLockReadGuard, RwLockWriteGuard,
-    };
-
-    #[cfg(feature = "multi-thread")]
-    mod multi_thread {
-        pub(super) struct RwLockImpl<T> {
-            inner: spin::lock_api::RwLock<T>,
-        }
-
-        impl<T> RwLockImpl<T> {
-            pub(super) fn new(value: T) -> Self {
-                Self {
-                    inner: spin::lock_api::RwLock::new(value),
-                }
-            }
-
-            pub(super) fn into_inner(self) -> T {
-                self.inner.into_inner()
-            }
-
-            pub(super) fn read<'a>(&'a self) -> RwLockReadGuard<'a, T> {
-                self.inner.read().into()
-            }
-
-            pub(super) fn read_map<'a, U: ?Sized, F>(&'a self, f: F) -> MappedRwLockReadGuard<'a, U>
-            where
-                F: FnOnce(&T) -> &U,
-            {
-                self.read().map(f)
-            }
-
-            pub(super) fn write<'a>(&'a self) -> RwLockWriteGuard<'a, T> {
-                self.inner.write().into()
-            }
-
-            pub(super) fn write_map<'a, U: ?Sized, F>(
-                &'a self,
-                f: F,
-            ) -> MappedRwLockWriteGuard<'a, U>
-            where
-                F: FnOnce(&mut T) -> &mut U,
-            {
-                self.write().map(f)
-            }
-        }
-
-        impl<T: core::fmt::Debug> core::fmt::Debug for RwLockImpl<T> {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                self.inner.fmt(f)
-            }
-        }
-
-        pub struct RwLockReadGuard<'a, T> {
-            inner: spin::lock_api::RwLockReadGuard<'a, T>,
-        }
-
-        impl<'a, T> RwLockReadGuard<'a, T> {
-            fn map<U: ?Sized, F>(self, f: F) -> MappedRwLockReadGuard<'a, U>
-            where
-                F: FnOnce(&T) -> &U,
-            {
-                MappedRwLockReadGuard {
-                    inner: spin::lock_api::RwLockReadGuard::map(self.inner, f),
-                }
-            }
-        }
-
-        impl<'a, T> From<spin::lock_api::RwLockReadGuard<'a, T>> for RwLockReadGuard<'a, T> {
-            fn from(value: spin::lock_api::RwLockReadGuard<'a, T>) -> Self {
-                Self { inner: value }
-            }
-        }
-
-        impl<'a, T> core::ops::Deref for RwLockReadGuard<'a, T> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                self.inner.deref()
-            }
-        }
-
-        pub struct RwLockWriteGuard<'a, T> {
-            inner: spin::lock_api::RwLockWriteGuard<'a, T>,
-        }
-
-        impl<'a, T> RwLockWriteGuard<'a, T> {
-            fn map<U: ?Sized, F>(self, f: F) -> MappedRwLockWriteGuard<'a, U>
-            where
-                F: FnOnce(&mut T) -> &mut U,
-            {
-                MappedRwLockWriteGuard {
-                    inner: spin::lock_api::RwLockWriteGuard::map(self.inner, f),
-                }
-            }
-        }
-
-        impl<'a, T> From<spin::lock_api::RwLockWriteGuard<'a, T>> for RwLockWriteGuard<'a, T> {
-            fn from(value: spin::lock_api::RwLockWriteGuard<'a, T>) -> Self {
-                Self { inner: value }
-            }
-        }
-
-        impl<'a, T> core::ops::Deref for RwLockWriteGuard<'a, T> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                self.inner.deref()
-            }
-        }
-
-        impl<'a, T> core::ops::DerefMut for RwLockWriteGuard<'a, T> {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                self.inner.deref_mut()
-            }
-        }
-        pub struct MappedRwLockReadGuard<'a, T: ?Sized> {
-            inner: spin::lock_api::MappedRwLockReadGuard<'a, T>,
-        }
-
-        impl<'a, T: ?Sized> MappedRwLockReadGuard<'a, T> {
-            #[inline]
-            pub fn map<U: ?Sized, F>(self, f: F) -> MappedRwLockReadGuard<'a, U>
-            where
-                F: FnOnce(&T) -> &U,
-            {
-                MappedRwLockReadGuard {
-                    inner: spin::lock_api::MappedRwLockReadGuard::map(self.inner, f),
-                }
-            }
-        }
-
-        impl<'a, T> core::ops::Deref for MappedRwLockReadGuard<'a, T> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                self.inner.deref()
-            }
-        }
-
-        pub struct MappedRwLockWriteGuard<'a, T: ?Sized> {
-            inner: spin::lock_api::MappedRwLockWriteGuard<'a, T>,
-        }
-
-        impl<'a, T: ?Sized> MappedRwLockWriteGuard<'a, T> {
-            #[inline]
-            pub fn map<U: ?Sized, F>(self, f: F) -> MappedRwLockWriteGuard<'a, U>
-            where
-                F: FnOnce(&mut T) -> &mut U,
-            {
-                MappedRwLockWriteGuard {
-                    inner: spin::lock_api::MappedRwLockWriteGuard::map(self.inner, f),
-                }
-            }
-        }
-
-        impl<'a, T> core::ops::Deref for MappedRwLockWriteGuard<'a, T> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                self.inner.deref()
-            }
-        }
-
-        impl<'a, T> core::ops::DerefMut for MappedRwLockWriteGuard<'a, T> {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                self.inner.deref_mut()
-            }
-        }
-    }
-    #[cfg(feature = "multi-thread")]
-    use multi_thread::RwLockImpl;
-    #[cfg(feature = "multi-thread")]
-    pub use multi_thread::{
-        MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLockReadGuard, RwLockWriteGuard,
-    };
-
-    pub struct RwLock<T> {
-        inner: RwLockImpl<T>,
-    }
-
-    impl<T> RwLock<T> {
-        pub fn new(value: T) -> Self {
-            Self {
-                inner: RwLockImpl::new(value),
-            }
-        }
-
-        pub fn into_inner(self) -> T {
-            self.inner.into_inner()
-        }
-
-        pub fn read<'a>(&'a self) -> RwLockReadGuard<'a, T> {
-            self.inner.read()
-        }
-
-        pub fn read_map<'a, U: ?Sized, F>(&'a self, f: F) -> MappedRwLockReadGuard<'a, U>
-        where
-            F: FnOnce(&T) -> &U,
-        {
-            self.inner.read_map(f)
-        }
-
-        pub fn write<'a>(&'a self) -> RwLockWriteGuard<'a, T> {
-            self.inner.write()
-        }
-
-        pub fn write_map<'a, U: ?Sized, F>(&'a self, f: F) -> MappedRwLockWriteGuard<'a, U>
-        where
-            F: FnOnce(&mut T) -> &mut U,
-        {
-            self.inner.write_map(f)
-        }
-    }
-
-    impl<T: core::fmt::Debug> core::fmt::Debug for RwLock<T> {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            self.inner.fmt(f)
         }
     }
 }

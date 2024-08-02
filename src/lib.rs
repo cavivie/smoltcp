@@ -169,6 +169,9 @@ pub mod storage;
 pub mod time;
 pub mod wire;
 
+// Re-export!!!
+pub use managed;
+
 #[cfg(all(
     test,
     any(

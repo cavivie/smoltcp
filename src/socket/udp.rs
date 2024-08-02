@@ -21,6 +21,10 @@ pub struct UdpMetadata {
     /// determined using the algorithms of RFC 6724 (candidate source address selection) or some
     /// heuristic (for IPv4).
     pub local_address: Option<IpAddress>,
+    /// The UDP port to which an incoming datagram was sent, or to which an outgoing datagram
+    /// will be sent. Incoming datagrams always have this set. On outgoing datagrams, if anyport
+    /// is set, the port should be set to a specified local port which received by recv_from, and
+    /// if the port is not set to a non-zero then send will fail.
     pub local_port: Option<u16>,
     pub meta: PacketMeta,
 }
@@ -340,6 +344,12 @@ impl<'a> Socket<'a> {
         if self.any_port && meta.local_port.is_none() {
             return Err(SendError::Unaddressable);
         }
+        if self.any_port && self.endpoint.port != 0 {
+            return Err(SendError::Unaddressable);
+        }
+        if !self.any_port && self.endpoint.port == 0 {
+            return Err(SendError::Unaddressable);
+        }
         if meta.endpoint.addr.is_unspecified() {
             return Err(SendError::Unaddressable);
         }
@@ -376,7 +386,16 @@ impl<'a> Socket<'a> {
         F: FnOnce(&mut [u8]) -> usize,
     {
         let meta = meta.into();
-        if self.endpoint.port == 0 {
+        if !self.is_open() {
+            return Err(SendError::Unaddressable);
+        }
+        if self.any_port && meta.local_port.is_none() {
+            return Err(SendError::Unaddressable);
+        }
+        if self.any_port && self.endpoint.port != 0 {
+            return Err(SendError::Unaddressable);
+        }
+        if !self.any_port && self.endpoint.port == 0 {
             return Err(SendError::Unaddressable);
         }
         if meta.endpoint.addr.is_unspecified() {
@@ -581,17 +600,19 @@ impl<'a> Socket<'a> {
                     },
                 }
             };
-            let src_port = match packet_meta.local_port {
-                Some(p) => p,
-                _ if !self.any_port => endpoint.port,
-                _ => {
+
+            let src_port = if self.any_port {
+                let Some(port) = packet_meta.local_port else {
                     net_trace!(
                         "udp:{}:{}: local port must be set when any port is enabled, dropping.",
                         endpoint,
                         packet_meta.endpoint
                     );
                     return Ok(());
-                }
+                };
+                port
+            } else {
+                endpoint.port
             };
 
             net_trace!(

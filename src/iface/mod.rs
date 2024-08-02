@@ -21,5 +21,8 @@ pub use self::interface::MulticastError;
 pub use self::interface::{Config, Interface, InterfaceInner as Context};
 
 pub use self::route::{Route, RouteTableFull, Routes};
-pub use self::socket_set::{SocketSet, SocketStorage};
-pub use self::socket_set::{AnySocketSet, SocketHandle};
+pub use self::socket_set::{
+    AnySocketSet, MappedRwLockGuard, MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock,
+    RwLockGuard, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard, SocketHandle,
+    SocketSet, SocketStorage,
+};
