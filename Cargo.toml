@@ -17,7 +17,7 @@ license = "0BSD"
 autoexamples = false
 
 [dependencies]
-managed = { path = "../rust-managed", default-features = false, features = ["map"] }
+managed = { git = "https://github.com/cavivie/rust-managed.git", rev = "428ccc2", default-features = false, features = ["map"] }
 byteorder = { version = "1.0", default-features = false }
 log = { version = "0.4.4", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
@@ -25,7 +25,7 @@ bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.3", optional = true }
 cfg-if = "1.0.0"
 heapless = "0.8"
-spin = { path = "../spin-rs", default-features = false, features = ["rwlock", "lock_api"] }
+spin = { git = "https://github.com/cavivie/spin-rs.git", rev = "3201c93", default-features = false, features = ["rwlock", "lock_api"] }
 
 [dev-dependencies]
 env_logger = "0.10"
